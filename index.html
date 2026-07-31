@@ -3,27 +3,51 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FreeCell Solver — Proof of Concept</title>
+  <title>FreeCell Solver — Board Entry</title>
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body class="solver-page">
   <main class="app-shell">
     <header>
       <p class="eyebrow">FreeCell solver project</p>
-      <h1>Solver proof of concept</h1>
-      <p class="intro">This first page checks that the copied JavaScript and WebAssembly solver can run locally in Chrome.</p>
+      <h1>Enter a FreeCell board</h1>
+      <p class="intro">Enter the cards down column 1, then column 2, continuing through column 8. The first four columns contain 7 cards; the last four contain 6.</p>
     </header>
 
-    <section class="panel">
-      <div class="toolbar">
-        <label for="board">FreeCell board</label>
-        <button id="load-deal" type="button" class="secondary">Reload sample deal #1</button>
+    <section class="panel board-entry-panel">
+      <div class="entry-status" aria-live="polite">
+        <div>
+          <span class="entry-label">Current position</span>
+          <strong id="entry-position">Column 1 · Card 1 of 7</strong>
+        </div>
+        <div class="entry-count"><strong id="card-count">0</strong> / 52 cards</div>
       </div>
-      <textarea id="board" spellcheck="false" aria-describedby="board-help"></textarea>
-      <p id="board-help" class="help">Each line is one tableau column. Card format uses rank and suit, such as <code>AS</code>, <code>TD</code>, and <code>KH</code>.</p>
+
+      <div id="column-progress" class="column-progress" aria-label="Column entry progress"></div>
+
+      <div class="keyboard-toolbar">
+        <strong>Card keyboard</strong>
+        <div class="keyboard-actions">
+          <button id="undo-card" type="button" class="secondary" disabled>Undo last card</button>
+          <button id="new-board" type="button" class="secondary">New blank board</button>
+          <button id="load-deal" type="button" class="secondary">Load sample deal #1</button>
+        </div>
+      </div>
+
+      <div id="card-keyboard" class="card-keyboard" aria-label="Card keyboard"></div>
+      <p class="help keyboard-help">A selected card turns gray and cannot be entered again. The keyboard displays <strong>10</strong>, while the solver stores it internally as <code>T</code>.</p>
+    </section>
+
+    <section class="panel board-text-panel">
+      <div class="toolbar">
+        <label for="board">Board text</label>
+        <span id="board-complete" class="completion-badge incomplete">Incomplete</span>
+      </div>
+      <textarea id="board" spellcheck="false" aria-describedby="board-help" readonly></textarea>
+      <p id="board-help" class="help">The keyboard fills this text automatically in the order required by the solver.</p>
 
       <div class="actions">
-        <button id="solve" type="button" disabled>Solve</button>
+        <button id="solve" type="button" disabled>Solve board</button>
         <button id="clear-output" type="button" class="secondary">Clear results</button>
         <a id="open-viewer" class="button-link secondary" href="solution.html" hidden>Open graphical viewer</a>
       </div>
@@ -42,7 +66,6 @@
   </main>
 
   <script>
-    // RequireJS needs to know that all AMD modules are in the js folder.
     var require = { baseUrl: "js" };
   </script>
   <script src="js/require.js" data-main="solver"></script>
