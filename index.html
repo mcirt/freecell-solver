@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FreeCell Solver — Proof of Concept</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="solver-page">
+  <main class="app-shell">
+    <header>
+      <p class="eyebrow">FreeCell solver project</p>
+      <h1>Solver proof of concept</h1>
+      <p class="intro">This first page checks that the copied JavaScript and WebAssembly solver can run locally in Chrome.</p>
+    </header>
+
+    <section class="panel">
+      <div class="toolbar">
+        <label for="board">FreeCell board</label>
+        <button id="load-deal" type="button" class="secondary">Reload sample deal #1</button>
+      </div>
+      <textarea id="board" spellcheck="false" aria-describedby="board-help"></textarea>
+      <p id="board-help" class="help">Each line is one tableau column. Card format uses rank and suit, such as <code>AS</code>, <code>TD</code>, and <code>KH</code>.</p>
+
+      <div class="actions">
+        <button id="solve" type="button" disabled>Solve</button>
+        <button id="clear-output" type="button" class="secondary">Clear results</button>
+        <a id="open-viewer" class="button-link secondary" href="solution.html" hidden>Open graphical viewer</a>
+      </div>
+    </section>
+
+    <section class="panel results" aria-live="polite">
+      <div class="status-row">
+        <strong>Status:</strong>
+        <span id="status" class="status loading">Loading solver…</span>
+      </div>
+      <div id="stats" class="stats"></div>
+      <h2>Solution moves</h2>
+      <ol id="moves" class="moves"></ol>
+      <pre id="error" class="error" hidden></pre>
+    </section>
+  </main>
+
+  <script>
+    // RequireJS needs to know that all AMD modules are in the js folder.
+    var require = { baseUrl: "js" };
+  </script>
+  <script src="js/require.js" data-main="solver"></script>
+</body>
+</html>
