@@ -1,0 +1,1 @@
+define(["require","exports"],function(require,exports){"use strict";Object.defineProperty(exports,"__esModule",{value:!0}),exports.perl_range=function(start,end){const ret=[];for(let i=start;i<=end;++i)ret.push(i);return ret}});
