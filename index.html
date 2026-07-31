@@ -2,72 +2,72 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FreeCell Solver — Board Entry</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>FreeCell Solver — Board Input</title>
   <link rel="stylesheet" href="css/styles.css">
 </head>
-<body class="solver-page">
-  <main class="app-shell">
-    <header>
-      <p class="eyebrow">FreeCell solver project</p>
-      <h1>Enter a FreeCell board</h1>
-      <p class="intro">Enter the cards down column 1, then column 2, continuing through column 8. The first four columns contain 7 cards; the last four contain 6.</p>
+<body class="input-page">
+  <main class="input-shell">
+    <header class="input-header">
+      <div class="input-brand-icon" aria-hidden="true">♠</div>
+      <div class="input-title-block">
+        <p>FREECELL SOLVER</p>
+        <h1>Board Input</h1>
+      </div>
+      <div class="input-header-actions">
+        <button id="how-to" class="header-outline" type="button">? How to Use</button>
+        <button id="settings" class="header-outline" type="button">⚙ Settings</button>
+      </div>
     </header>
 
-    <section class="panel board-entry-panel">
-      <div class="entry-status" aria-live="polite">
-        <div>
-          <span class="entry-label">Current position</span>
-          <strong id="entry-position">Column 1 · Card 1 of 7</strong>
-        </div>
-        <div class="entry-count"><strong id="card-count">0</strong> / 52 cards</div>
+    <section class="input-toolbar" aria-label="Board entry controls">
+      <div class="entry-status">
+        <div><span>ENTERING:</span><strong id="active-column-label">Column 1</strong></div>
+        <div class="entry-divider"></div>
+        <div><strong id="active-card-label">Card 1 of 7</strong><small id="remaining-label">52 cards remaining</small></div>
       </div>
-
-      <div id="column-progress" class="column-progress" aria-label="Column entry progress"></div>
-
-      <div class="keyboard-toolbar">
-        <strong>Card keyboard</strong>
-        <div class="keyboard-actions">
-          <button id="undo-card" type="button" class="secondary" disabled>Undo last card</button>
-          <button id="new-board" type="button" class="secondary">New blank board</button>
-          <button id="load-deal" type="button" class="secondary">Load sample deal #1</button>
-        </div>
-      </div>
-
-      <div id="card-keyboard" class="card-keyboard" aria-label="Card keyboard"></div>
-      <p class="help keyboard-help">A selected card turns gray and cannot be entered again. The keyboard displays <strong>10</strong>, while the solver stores it internally as <code>T</code>.</p>
+      <button id="undo-input" class="input-action undo-action" type="button">↶ Undo Last Card</button>
+      <button id="clear-board" class="input-action clear-action" type="button">🗑 Clear Board</button>
     </section>
 
-    <section class="panel board-text-panel">
-      <div class="toolbar">
-        <label for="board">Board text</label>
-        <span id="board-complete" class="completion-badge incomplete">Incomplete</span>
-      </div>
-      <textarea id="board" spellcheck="false" aria-describedby="board-help" readonly></textarea>
-      <p id="board-help" class="help">The keyboard fills this text automatically in the order required by the solver.</p>
-
-      <div class="actions">
-        <button id="solve" type="button" disabled>Solve board</button>
-        <button id="clear-output" type="button" class="secondary">Clear results</button>
-        <a id="open-viewer" class="button-link secondary" href="solution.html" hidden>Open graphical viewer</a>
-      </div>
+    <section class="input-board-section" aria-label="FreeCell tableau input">
+      <div id="input-board" class="input-board"></div>
     </section>
 
-    <section class="panel results" aria-live="polite">
-      <div class="status-row">
-        <strong>Status:</strong>
-        <span id="status" class="status loading">Loading solver…</span>
-      </div>
-      <div id="stats" class="stats"></div>
-      <h2>Solution moves</h2>
-      <ol id="moves" class="moves"></ol>
-      <pre id="error" class="error" hidden></pre>
+    <section class="keyboard-panel" aria-label="Card keyboard">
+      <p class="keyboard-instruction">ⓘ Click a card below to add it to the highlighted position.</p>
+      <div id="card-keyboard" class="card-keyboard"></div>
     </section>
+
+    <section class="input-footer-actions">
+      <button id="save-board" class="footer-action save-action" type="button">
+        <strong>▣ Save Board</strong>
+        <small>Save current board to this device</small>
+      </button>
+      <button id="load-board" class="footer-action load-action" type="button">
+        <strong>▱ Load Saved Board</strong>
+        <small>Load the most recent saved board</small>
+      </button>
+      <button id="solve" class="footer-action solve-action" type="button" disabled>
+        <strong>⌕ Solve This Board</strong>
+        <small id="solve-subtitle">Enter all 52 cards first</small>
+      </button>
+    </section>
+
+    <p id="input-message" class="input-message" role="status" aria-live="polite"></p>
+
+    <textarea id="board" hidden aria-hidden="true"></textarea>
+    <span id="status" hidden></span>
+    <div id="stats" hidden></div>
+    <ol id="moves" hidden></ol>
+    <pre id="error" hidden></pre>
+    <a id="open-viewer" href="solution.html" hidden></a>
   </main>
 
   <script>
     var require = { baseUrl: "js" };
   </script>
+  <script src="js/input.js"></script>
   <script src="js/require.js" data-main="solver"></script>
 </body>
 </html>

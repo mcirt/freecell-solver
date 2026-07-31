@@ -1,16 +1,20 @@
 # FreeCell Web Project
 
-A browser-based FreeCell solver using the Freecell Solver WebAssembly engine.
+A browser-based FreeCell board-entry tool, WebAssembly solver, and animated solution viewer.
 
-## Files
-- `index.html` — board input and solver results
-- `solution.html` — graphical solution viewer
-- `css/styles.css` — shared styles for both pages
-- `js/solver.js` — WebAssembly solver integration
-- `js/cards.js` — card display, including `10` instead of `T`
-- `js/board.js` — board parsing, state changes, and rendering
-- `js/animation.js` — card-flight animation and source/destination highlighting
-- `js/controls.js` — viewer controls
-- `js/solution.js` — solution viewer controller
+## Main files
 
-Serve this folder through HTTP, such as GitHub Pages or `python3 -m http.server 8000`.
+- `index.html` — visual card keyboard and editable board input
+- `solution.html` — animated solution viewer
+- `css/styles.css` — shared styles
+- `js/input.js` — card entry, editing, undo, save/load, and solver-board formatting
+- `js/solver.js` — Freecell Solver WebAssembly integration
+
+## Board input behavior
+
+- Enter cards down columns 1 through 8.
+- Columns 1–4 contain 7 cards each.
+- Columns 5–8 contain 6 cards each.
+- Used cards are disabled to prevent duplicates.
+- Tap any filled board position to clear and replace it.
+- Save/load uses browser Local Storage.
