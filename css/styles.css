@@ -1,0 +1,103 @@
+/* Shared styles for the FreeCell solver and graphical solution viewer. */
+* { box-sizing: border-box; }
+html { min-height: 100%; }
+body { margin: 0; min-height: 100vh; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+button, textarea, select, a { font: inherit; }
+
+/* ================= Solver page ================= */
+.solver-page { color: #172033; background: #eef2f7; }
+.solver-page .app-shell { width: min(920px, calc(100% - 28px)); margin: 32px auto; }
+.solver-page header { margin-bottom: 20px; }
+.solver-page .eyebrow { margin: 0 0 6px; font-size: .82rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #50627c; }
+.solver-page h1 { margin: 0; font-size: clamp(1.8rem, 5vw, 2.8rem); }
+.solver-page .intro { max-width: 700px; line-height: 1.5; color: #4b5b72; }
+.solver-page .panel { background: white; border: 1px solid #d7deea; border-radius: 14px; box-shadow: 0 8px 24px rgba(31,43,68,.08); padding: 20px; margin-bottom: 18px; }
+.solver-page .toolbar, .solver-page .actions, .solver-page .status-row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.solver-page .toolbar { justify-content:space-between; margin-bottom:10px; }
+.solver-page label, .solver-page h2 { font-weight:700; }
+.solver-page textarea { width:100%; min-height:245px; resize:vertical; border:1px solid #aeb9ca; border-radius:9px; padding:13px; line-height:1.55; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.96rem; }
+.solver-page textarea:focus { outline:3px solid rgba(38,102,214,.2); border-color:#2666d6; }
+.solver-page button { border:0; border-radius:9px; padding:10px 16px; background:#245fc4; color:white; font-weight:700; cursor:pointer; }
+.solver-page button.secondary { background:#e8edf5; color:#26364e; }
+.solver-page button:disabled { opacity:.55; cursor:not-allowed; }
+.solver-page button:not(:disabled):hover { filter:brightness(.96); }
+.solver-page .help { margin:8px 0 16px; color:#5b6b81; font-size:.92rem; }
+.solver-page .actions { margin-top:8px; }
+.solver-page .status { display:inline-block; padding:4px 9px; border-radius:999px; font-weight:700; }
+.solver-page .status.loading, .solver-page .status.running { background:#fff1c7; color:#684d00; }
+.solver-page .status.ready, .solver-page .status.solved { background:#dff6e8; color:#165e35; }
+.solver-page .status.error, .solver-page .status.impossible, .solver-page .status.exceeded { background:#ffe2e2; color:#8b1d1d; }
+.solver-page .stats { margin-top:12px; color:#50627c; }
+.solver-page h2 { margin:22px 0 8px; font-size:1.15rem; }
+.solver-page .moves { margin:0; padding-left:30px; line-height:1.65; }
+.solver-page .moves:empty::before { content:"No moves to display yet."; color:#6a778a; }
+.solver-page .error { white-space:pre-wrap; background:#fff1f1; border:1px solid #efb2b2; border-radius:8px; padding:12px; color:#7a1717; }
+.solver-page .button-link { display:inline-flex; align-items:center; justify-content:center; text-decoration:none; padding:.75rem 1rem; border-radius:10px; font-weight:700; }
+.solver-page .button-link.secondary { color:#1d2a40; background:#e8edf5; }
+
+/* ================= Solution viewer ================= */
+.solution-page {
+  --navy:#071f4d; --navy-2:#0b3470; --teal:#087d79; --aqua:#22d9c6; --purple:#662b8f; --gold:#ffb80d;
+  --card-w:clamp(54px,10.7vw,112px); --card-h:calc(var(--card-w)*1.38); --overlap:clamp(29px,5.3vw,55px);
+  color:white; background:radial-gradient(circle at 50% 18%,#1856a0,#071d49 58%,#03122e);
+}
+.solution-page .game-shell { min-height:100vh; max-width:1180px; margin:auto; padding-bottom:22px; }
+.solution-page .game-header { display:grid; grid-template-columns:115px 1fr 70px; align-items:center; gap:14px; padding:18px clamp(14px,3vw,34px); border-bottom:2px solid rgba(69,192,255,.38); }
+.solution-page .title-block { text-align:center; }
+.solution-page .title-block p { margin:0; font-weight:800; letter-spacing:.18em; font-size:.8rem; opacity:.8; }
+.solution-page .title-block h1 { margin:2px 0 0; font-size:clamp(1.25rem,3vw,2.2rem); }
+.solution-page .gold-button, .solution-page .menu-button { min-height:50px; border:0; border-radius:15px; color:#843800; font-weight:900; background:linear-gradient(#ffd234,#ffa800); box-shadow:0 5px 0 #a95000,0 8px 18px #00102e; }
+.solution-page .gold-button { display:grid; place-items:center; text-decoration:none; }
+.solution-page .menu-button { color:white; background:linear-gradient(#1450a1,#0b3470); box-shadow:0 5px 0 #031c46; font-size:1.6rem; }
+.solution-page .top-board { display:grid; grid-template-columns:1fr minmax(130px,.65fr) 1fr; align-items:center; gap:clamp(8px,2vw,24px); padding:22px clamp(8px,2vw,28px) 18px; }
+.solution-page .slot-group h2 { text-align:center; margin:0 0 9px; text-transform:uppercase; letter-spacing:.06em; font-size:clamp(.72rem,1.7vw,1.05rem); }
+.solution-page .slot-row { display:grid; grid-template-columns:repeat(4,1fr); gap:clamp(4px,.8vw,10px); }
+.solution-page .slot { width:100%; aspect-ratio:.72; border-radius:8px; display:grid; place-items:center; font-weight:900; font-size:clamp(1.5rem,4.5vw,3rem); position:relative; }
+.solution-page .foundation-slot { border:3px solid #17a6a8; background:rgba(1,45,80,.72); box-shadow:inset 0 0 14px #071833,0 0 10px rgba(27,215,205,.28); }
+.solution-page .freecell-slot { border:3px solid #8d3bb9; background:linear-gradient(145deg,rgba(69,24,103,.9),rgba(43,16,80,.95)); color:#a64cce; }
+.solution-page .slot.empty::after { content:attr(data-symbol); opacity:.28; }
+.solution-page .center-emblem { display:grid; justify-items:center; gap:10px; }
+.solution-page .mask { font-size:clamp(3.4rem,8vw,6rem); color:#fbb41c; filter:drop-shadow(0 4px 0 #5a236e); }
+.solution-page .counter { background:rgba(4,43,85,.9); border:2px solid #159f9c; border-radius:10px; padding:7px 12px; text-align:center; }
+.solution-page .counter span { display:block; font-size:.7rem; text-transform:uppercase; opacity:.75; }
+.solution-page .tableau-area { min-height:clamp(410px,60vw,690px); padding:18px clamp(4px,1.5vw,20px) 28px; background-color:var(--teal); background-image:radial-gradient(circle at 12px 12px,rgba(1,49,81,.17) 0 3px,transparent 4px),linear-gradient(45deg,rgba(0,40,64,.10) 25%,transparent 25% 75%,rgba(0,40,64,.10) 75%); background-size:24px 24px,48px 48px; border-top:4px solid #13b7a8; border-bottom:5px solid #14ead5; box-shadow:inset 0 8px 18px rgba(0,0,0,.25); }
+.solution-page .tableau { display:grid; grid-template-columns:repeat(8,minmax(0,1fr)); gap:clamp(3px,.65vw,9px); align-items:start; }
+.solution-page .column { position:relative; min-width:0; }
+.solution-page .column-number { height:30px; margin-bottom:7px; border-radius:14px; display:grid; place-items:center; background:#123f92; font-weight:800; }
+.solution-page .cards { position:relative; min-height:360px; }
+.solution-page .card { position:absolute; left:0; top:0; width:100%; max-width:var(--card-w); aspect-ratio:.72; border-radius:6px; color:#161b37; background:linear-gradient(120deg,#fff,#edf0f5); border:1px solid #b9bec8; box-shadow:0 2px 4px rgba(0,0,0,.35); padding:clamp(2px,.6vw,7px); font-weight:800; overflow:hidden; transition:top .22s ease,transform .22s ease,box-shadow .22s ease; }
+.solution-page .card.red { color:#d31d25; }
+.solution-page .card .rank { font-size:clamp(1.1rem,3.6vw,2.65rem); line-height:.9; }
+.solution-page .card .suit { font-size:clamp(.9rem,3vw,2.1rem); line-height:1; }
+.solution-page .card .big-suit { position:absolute; right:6px; bottom:4px; font-size:clamp(1.7rem,5.7vw,4.2rem); opacity:.96; }
+.solution-page .slot .card { position:relative; width:100%; height:100%; max-width:none; }
+.solution-page .player-panel { margin:18px clamp(8px,2vw,25px) 0; padding:16px; border:2px solid #154783; border-radius:18px; background:rgba(2,24,61,.92); box-shadow:0 8px 25px rgba(0,0,0,.3); }
+.solution-page .move-description { min-height:1.6em; text-align:center; margin-bottom:13px; font-weight:700; color:#d8edff; }
+.solution-page .controls { display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:10px; }
+.solution-page .controls button, .solution-page select { border:0; border-radius:10px; padding:12px 17px; color:white; background:linear-gradient(#174e9a,#0c3474); box-shadow:0 3px 0 #031b45; font-weight:800; }
+.solution-page .controls button:disabled { opacity:.4; }
+.solution-page .controls .play { background:linear-gradient(#35ad51,#20843b); box-shadow:0 3px 0 #135725; min-width:150px; }
+.solution-page .secondary-controls { margin-top:12px; }
+.solution-page .speed-label { display:flex; align-items:center; gap:8px; font-weight:700; }
+.solution-page .viewer-error { color:#ffd3d3; background:#6e1720; padding:10px; border-radius:8px; }
+.solution-page .move-source { outline:4px solid #ffd44d!important; outline-offset:4px; border-radius:10px; box-shadow:0 0 0 4px rgba(255,189,18,.25),0 0 22px rgba(255,211,61,.95)!important; }
+.solution-page .move-destination { outline:4px solid #4dffbd!important; outline-offset:4px; border-radius:10px; box-shadow:0 0 0 4px rgba(37,255,177,.22),0 0 24px rgba(41,255,190,.95)!important; }
+.solution-page .moving-card { border:3px solid #76ffcb!important; box-shadow:-5px 0 0 #ffd44d,5px 0 0 #4dffbd,0 12px 35px rgba(0,0,0,.62),0 0 30px rgba(63,255,194,.95)!important; filter:brightness(1.06); }
+.solution-page .moving-card::before { content:"FROM"; position:absolute; left:3px; bottom:3px; padding:2px 4px; border-radius:4px; background:#ffd44d; color:#382800; font-size:8px; z-index:2; }
+.solution-page .moving-card::after { content:"TO"; position:absolute; right:3px; bottom:3px; padding:2px 4px; border-radius:4px; background:#4dffbd; color:#003d2c; font-size:8px; z-index:2; }
+.solution-page .arrival-flash { animation:arrival-pulse .48s ease-out; }
+@keyframes arrival-pulse { 0% { box-shadow:0 0 0 5px rgba(70,255,186,.95),0 0 30px rgba(70,255,186,.95); transform:scale(1.04); } 100% { box-shadow:0 2px 4px rgba(0,0,0,.35); transform:scale(1); } }
+@media (max-width:700px) {
+  .solution-page .game-header { grid-template-columns:75px 1fr 54px; padding:12px 8px; }
+  .solution-page .gold-button, .solution-page .menu-button { min-height:44px; }
+  .solution-page .top-board { grid-template-columns:1fr 76px 1fr; }
+  .solution-page .mask { font-size:3rem; }
+  .solution-page .counter { padding:5px; font-size:.72rem; }
+  .solution-page .tableau-area { min-height:470px; }
+  .solution-page .column-number { height:24px; font-size:.75rem; }
+  .solution-page .controls button { padding:10px 11px; font-size:.82rem; }
+  .solution-page #move-counter { width:100%; text-align:center; order:-1; }
+  .solver-page .app-shell { margin-top:16px; }
+  .solver-page .panel { padding:15px; }
+  .solver-page .toolbar button { width:100%; }
+}
