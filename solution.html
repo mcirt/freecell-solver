@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>FreeCell Solution Viewer</title>
   <link rel="stylesheet" href="css/styles.css">
 </head>
@@ -17,17 +17,11 @@
       <button class="menu-button" type="button" aria-label="Menu">☰</button>
     </header>
 
-    <section class="top-board" aria-label="FreeCell upper board">
+    <section class="top-board" aria-label="Foundations and free cells">
       <div class="slot-group foundations-wrap">
         <h2>Foundations</h2>
         <div id="foundations" class="slot-row"></div>
       </div>
-
-      <div class="center-emblem" aria-hidden="true">
-        <div class="mask">⚜</div>
-        <div class="counter"><span>Moves</span><strong id="move-counter-top">0 / 0</strong></div>
-      </div>
-
       <div class="slot-group freecells-wrap">
         <h2>Free cells</h2>
         <div id="freecells" class="slot-row"></div>
@@ -40,24 +34,25 @@
 
     <section class="player-panel">
       <div class="move-description" id="move-description">Starting position</div>
-      <div class="controls">
+      <strong id="move-counter" class="panel-counter">Move 0 of 0</strong>
+      <div class="controls primary-controls">
         <button id="first" type="button">|◀ First</button>
         <button id="previous" type="button">◀ Previous</button>
-        <strong id="move-counter">Move 0 of 0</strong>
         <button id="next" type="button">Next ▶</button>
         <button id="last" type="button">Last ▶|</button>
       </div>
       <div class="controls secondary-controls">
         <button id="play" class="play" type="button">▶ Play</button>
         <button id="pause" type="button">Ⅱ Pause</button>
-        <label class="speed-label">Speed
-          <select id="speed">
-            <option value="1200">Slow</option>
-            <option value="700" selected>Normal</option>
-            <option value="350">Fast</option>
-          </select>
-        </label>
       </div>
+      <label class="speed-label" for="speed">Speed
+        <select id="speed">
+          <option value="1200">Slow</option>
+          <option value="700">Normal</option>
+          <option value="350" selected>Fast</option>
+          <option value="0">Instant</option>
+        </select>
+      </label>
       <p id="viewer-error" class="viewer-error" hidden></p>
     </section>
   </main>
