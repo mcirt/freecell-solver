@@ -80,11 +80,11 @@
       <div id="scan-picker-panel" class="scan-picker-panel">
         <p>Take a new photo of a FreeCell board, or select an existing screenshot or picture from Photos or Files.</p>
         <div class="scan-source-buttons">
-          <button id="take-board-photo" class="scan-primary" type="button">📷 Take Photo</button>
-          <button id="choose-board-picture" class="scan-secondary" type="button">🖼 Choose Screenshot or Picture</button>
+          <label id="take-board-photo" class="scan-primary scan-file-label" for="board-camera-input">📷 Take Photo</label>
+          <label id="choose-board-picture" class="scan-secondary scan-file-label" for="board-picture-input">🖼 Choose Screenshot or Picture</label>
         </div>
-        <input id="board-camera-input" type="file" accept="image/*" capture="environment" hidden>
-        <input id="board-picture-input" type="file" accept="image/*" hidden>
+        <input id="board-camera-input" class="scan-file-input" type="file" accept="image/*" capture="environment">
+        <input id="board-picture-input" class="scan-file-input" type="file" accept="image/*">
       </div>
 
       <div id="scan-preview-panel" class="scan-preview-panel" hidden>
@@ -97,7 +97,7 @@
         <details class="scan-calibration">
           <summary>Adjust calibration</summary>
           <div class="scan-slider-grid">
-            <label>Tableau top <output id="scan-top-value"></output><input id="scan-top" type="range" min="25" max="50" step="0.1"></label>
+            <label>Tableau top <output id="scan-top-value"></output><input id="scan-top" type="range" min="40" max="65" step="0.1"></label>
             <label>Left edge <output id="scan-left-value"></output><input id="scan-left" type="range" min="0" max="10" step="0.1"></label>
             <label>Column spacing <output id="scan-spacing-value"></output><input id="scan-spacing" type="range" min="10" max="14" step="0.05"></label>
             <label>Row step <output id="scan-row-value"></output><input id="scan-row" type="range" min="2" max="5" step="0.05"></label>

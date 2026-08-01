@@ -26,3 +26,10 @@ The Board Input page includes **Scan Board**, with separate options to take a ne
 ## Screenshot crop calibration
 
 The Scan Board dialog now automatically overlays 52 numbered rank-and-suit crop regions across the eight tableau columns. The default geometry is percentage-based, so it scales to screenshots from different iPhone models. Advanced sliders allow calibration of tableau top, left edge, column spacing, row overlap, and crop size. Confirmed settings are saved locally in the browser for the next recognition stage.
+
+
+## Scanner calibration update
+
+- Default tableau top is 55%.
+- Tableau top can be adjusted from 40% to 65%.
+- Camera and saved-image inputs use direct labels for better reliability in iPhone Safari.
