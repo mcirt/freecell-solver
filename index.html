@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>FreeCell Solver — Board Input</title>
-  <link rel="stylesheet" href="css/styles.css?v=7">
+  <link rel="stylesheet" href="css/styles.css?v=8">
 </head>
 <body class="input-page">
   <main class="input-shell">
@@ -87,7 +87,7 @@
       </div>
 
       <div id="scan-preview-panel" class="scan-preview-panel" hidden>
-        <p class="scan-help">Constrained card-region preview. Boxes follow one calibrated top and a uniform row step, with only a tiny local correction so they cannot jump to suit artwork or borders.</p>
+        <p class="scan-help">Labeled strip preview. Every cyan strip is assigned a stable position such as C1-1, C1-2, and so on. The strip covers only the exposed rank-and-suit header of that card.</p>
         <div id="scan-stage" class="scan-stage">
           <img id="scan-image" alt="Selected FreeCell board">
           <div id="scan-crops" class="scan-crops" aria-label="Detected tableau card crop regions"></div>
@@ -101,7 +101,7 @@
             <label>Column spacing <output id="scan-spacing-value"></output><input id="scan-spacing" type="range" min="10" max="14" step="0.05"></label>
             <label>Row step <output id="scan-row-value"></output><input id="scan-row" type="range" min="2" max="6" step="0.05"></label>
             <label>Crop width <output id="scan-width-value"></output><input id="scan-width" type="range" min="4" max="11" step="0.1"></label>
-            <label>Crop height <output id="scan-height-value"></output><input id="scan-height" type="range" min="1.5" max="5" step="0.1"></label>
+            <label>Crop height <output id="scan-height-value"></output><input id="scan-height" type="range" min="1.5" max="4.5" step="0.05"></label>
           </div>
         </details>
 
@@ -110,13 +110,13 @@
         <div class="scan-actions">
           <button id="scan-choose-another" class="scan-secondary" type="button">Choose Another</button>
           <button id="scan-reset-calibration" class="scan-secondary" type="button">Reset Calibration</button>
-          <button id="scan-detect-tops" class="scan-secondary" type="button">Detect Card Tops</button>
+          <button id="scan-detect-tops" class="scan-secondary" type="button">Rebuild Labeled Strips</button>
           <button id="scan-preview-crops" class="scan-secondary" type="button">Preview 52 Crops</button>
           <button id="scan-confirm-crops" class="scan-primary" type="button">Confirm Crops</button>
         </div>
         <section id="scan-crop-preview-panel" class="scan-crop-preview-panel" hidden aria-label="Cropped card corner preview">
-          <h3>52 cropped rank-and-suit regions</h3>
-          <p>Each image is cut from a detected card-top position. Every thumbnail should contain one upper-left rank and suit.</p>
+          <h3>52 labeled rank-and-suit crops</h3>
+          <p>Each thumbnail uses the exact same normalized coordinates as its matching cyan strip. Tap a thumbnail to highlight its source strip, or tap a strip to find its thumbnail.</p>
           <div id="scan-crop-preview-grid" class="scan-crop-preview-grid"></div>
         </section>
       </div>
@@ -124,10 +124,10 @@
   </section>
 
   <script>
-    var require = { baseUrl: "js", urlArgs: "v=7" };
+    var require = { baseUrl: "js", urlArgs: "v=8" };
   </script>
-  <script src="js/input.js?v=7"></script>
-  <script src="js/scan.js?v=7"></script>
-  <script src="js/require.js?v=7" data-main="solver"></script>
+  <script src="js/input.js?v=8"></script>
+  <script src="js/scan.js?v=8"></script>
+  <script src="js/require.js?v=8" data-main="solver"></script>
 </body>
 </html>
