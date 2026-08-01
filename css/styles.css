@@ -309,3 +309,26 @@ button, textarea, select, a { font: inherit; }
 @media (max-width:480px) {
   .scan-slider-grid { grid-template-columns:1fr; }
 }
+
+/* Keep file inputs available to iOS Safari while visually hiding them.
+   Labels with for= open the native Camera / Photos / Files chooser reliably. */
+.scan-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.scan-file-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  text-align: center;
+  box-sizing: border-box;
+}
