@@ -22,3 +22,7 @@ A browser-based FreeCell board-entry tool, WebAssembly solver, and animated solu
 
 ## Scan/import preview
 The Board Input page includes **Scan Board**, with separate options to take a new photo or choose an existing screenshot/picture. The current phase previews the image and provides eight adjustable tableau-column guides; automatic card recognition is the next phase.
+
+## Screenshot crop calibration
+
+The Scan Board dialog now automatically overlays 52 numbered rank-and-suit crop regions across the eight tableau columns. The default geometry is percentage-based, so it scales to screenshots from different iPhone models. Advanced sliders allow calibration of tableau top, left edge, column spacing, row overlap, and crop size. Confirmed settings are saved locally in the browser for the next recognition stage.
