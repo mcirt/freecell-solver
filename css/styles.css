@@ -310,25 +310,82 @@ button, textarea, select, a { font: inherit; }
   .scan-slider-grid { grid-template-columns:1fr; }
 }
 
-/* Keep file inputs available to iOS Safari while visually hiding them.
-   Labels with for= open the native Camera / Photos / Files chooser reliably. */
-.scan-file-input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-.scan-file-label {
+/* iPhone Safari is most reliable when the user taps the real file input.
+   Each input fills its styled label, but remains transparent. */
+.scan-file-control {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  min-height: 58px;
+  overflow: hidden;
   cursor: pointer;
   text-align: center;
   box-sizing: border-box;
+}
+.scan-file-control span {
+  pointer-events: none;
+}
+.scan-file-control input[type="file"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  opacity: 0.001;
+  cursor: pointer;
+  font-size: 100px;
+}
+
+/* Scan calibration v4: one reliable native picker plus 52-crop preview. */
+.scan-source-buttons.single-source {
+  display: block;
+}
+.scan-source-buttons.single-source .scan-file-control {
+  width: 100%;
+  min-height: 76px;
+}
+.scan-crop-preview-panel {
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid rgba(45, 211, 255, 0.45);
+  border-radius: 18px;
+  background: rgba(3, 25, 61, 0.88);
+}
+.scan-crop-preview-panel h3 {
+  margin: 0 0 6px;
+  font-size: 1.2rem;
+}
+.scan-crop-preview-panel p {
+  margin: 0 0 14px;
+  color: #b9d8f6;
+}
+.scan-crop-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.scan-crop-preview-item {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid rgba(45, 211, 255, 0.55);
+  border-radius: 10px;
+  background: #ffffff;
+}
+.scan-crop-preview-item canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: auto;
+}
+.scan-crop-preview-item figcaption {
+  padding: 4px 6px;
+  background: #06234f;
+  color: #dff9ff;
+  font-size: 0.72rem;
+  text-align: center;
+}
+@media (min-width: 700px) {
+  .scan-crop-preview-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); }
 }
