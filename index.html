@@ -26,6 +26,7 @@
         <div class="entry-divider"></div>
         <div><strong id="active-card-label">Card 1 of 7</strong><small id="remaining-label">52 cards remaining</small></div>
       </div>
+      <button id="scan-board" class="input-action scan-action" type="button">📷 Scan Board</button>
       <button id="undo-input" class="input-action undo-action" type="button">↶ Undo Last Card</button>
       <button id="clear-board" class="input-action clear-action" type="button">🗑 Clear Board</button>
     </section>
@@ -64,10 +65,48 @@
     <a id="open-viewer" href="solution.html" hidden></a>
   </main>
 
+
+  <section id="scan-dialog" class="scan-dialog" hidden aria-labelledby="scan-title" role="dialog" aria-modal="true">
+    <div class="scan-backdrop" data-scan-cancel></div>
+    <div class="scan-card">
+      <header class="scan-header">
+        <div>
+          <p>FREECELL SOLVER</p>
+          <h2 id="scan-title">Scan or Import Board</h2>
+        </div>
+        <button id="scan-close" class="scan-close" type="button" aria-label="Close scan window">×</button>
+      </header>
+
+      <div id="scan-picker-panel" class="scan-picker-panel">
+        <p>Take a new photo of a FreeCell board, or select an existing screenshot or picture from Photos or Files.</p>
+        <div class="scan-source-buttons">
+          <button id="take-board-photo" class="scan-primary" type="button">📷 Take Photo</button>
+          <button id="choose-board-picture" class="scan-secondary" type="button">🖼 Choose Screenshot or Picture</button>
+        </div>
+        <input id="board-camera-input" type="file" accept="image/*" capture="environment" hidden>
+        <input id="board-picture-input" type="file" accept="image/*" hidden>
+      </div>
+
+      <div id="scan-preview-panel" class="scan-preview-panel" hidden>
+        <p class="scan-help">Drag the eight cyan guides so each guide sits over the center of a tableau column.</p>
+        <div id="scan-stage" class="scan-stage">
+          <img id="scan-image" alt="Selected FreeCell board">
+          <div id="scan-guides" class="scan-guides" aria-label="Adjustable tableau column guides"></div>
+        </div>
+        <div class="scan-actions">
+          <button id="scan-choose-another" class="scan-secondary" type="button">Choose Another</button>
+          <button id="scan-reset-guides" class="scan-secondary" type="button">Reset Guides</button>
+          <button id="scan-use-image" class="scan-primary" type="button">Use Image</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <script>
     var require = { baseUrl: "js" };
   </script>
   <script src="js/input.js"></script>
+  <script src="js/scan.js"></script>
   <script src="js/require.js" data-main="solver"></script>
 </body>
 </html>

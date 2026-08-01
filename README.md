@@ -18,3 +18,7 @@ A browser-based FreeCell board-entry tool, WebAssembly solver, and animated solu
 - Used cards are disabled to prevent duplicates.
 - Tap any filled board position to clear and replace it.
 - Save/load uses browser Local Storage.
+
+
+## Scan/import preview
+The Board Input page includes **Scan Board**, with separate options to take a new photo or choose an existing screenshot/picture. The current phase previews the image and provides eight adjustable tableau-column guides; automatic card recognition is the next phase.
