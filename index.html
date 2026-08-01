@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>FreeCell Solver — Board Input</title>
-  <link rel="stylesheet" href="css/styles.css?v=10">
+  <link rel="stylesheet" href="css/styles.css?v=13">
 </head>
 <body class="input-page">
   <main class="input-shell">
@@ -124,14 +124,14 @@
     </div>
   </section>
 
+  <!-- Load OpenCV before RequireJS so the UMD build creates window.cv instead of registering as AMD. -->
+  <script src="js/opencv.js?v=13"></script>
+  <script src="js/opencv-loader.js?v=13"></script>
+  <script src="js/input.js?v=13"></script>
+  <script src="js/scan.js?v=13"></script>
   <script>
-    var require = { baseUrl: "js", urlArgs: "v=11" };
+    var require = { baseUrl: "js", urlArgs: "v=13" };
   </script>
-  <!-- Load OpenCV before RequireJS so its UMD wrapper cannot register as an AMD module. -->
-  <script src="js/opencv.js?v=11.1"></script>
-  <script src="js/input.js?v=11.1"></script>
-  <script src="js/opencv-loader.js?v=11.1"></script>
-  <script src="js/scan.js?v=11.1"></script>
-  <script src="js/require.js?v=11.1" data-main="solver"></script>
+  <script src="js/require.js?v=13" data-main="solver"></script>
 </body>
 </html>
