@@ -522,3 +522,20 @@ button, textarea, select, a { font: inherit; }
 @media (max-width:700px) {
   .scan-labeled-strip span { display:grid; }
 }
+
+/* OpenCV screenshot scanner v9 */
+.opencv-status {
+  margin: 0 0 10px;
+  padding: 10px 14px;
+  border: 1px solid #3478b8;
+  border-radius: 9px;
+  color: #d7ecff;
+  background: rgba(0, 23, 59, .78);
+  text-align: center;
+  font-weight: 800;
+}
+.opencv-status.ready { border-color: #1fcbb1; color: #2affea; }
+.opencv-status.working { border-color: #e6bb35; color: #ffe27a; }
+.opencv-status.warning { border-color: #ff9d32; color: #ffca78; }
+.scan-preview-invalid { border-color: #ffad32 !important; box-shadow: 0 0 0 2px rgba(255,173,50,.3); }
+.scan-preview-invalid .scan-crop-preview-caption { color: #ffca78; }
