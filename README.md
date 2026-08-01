@@ -33,3 +33,9 @@ The Scan Board dialog now automatically overlays 52 numbered rank-and-suit crop 
 - Default tableau top is 55%.
 - Tableau top can be adjusted from 40% to 65%.
 - Camera and saved-image inputs use direct labels for better reliability in iPhone Safari.
+
+## Scan calibration v4
+
+The scan dialog now uses one iPhone-compatible native image input only. It can open the camera, Photos, or Files. The default calibration profile is based on the verified screenshot values: top 53.7%, left 1.0%, column spacing 12.40%, row step 5.00%, crop width 11.0%, and crop height 4.3%.
+
+Use **Preview 52 Crops** to inspect the actual rank-and-suit images that the future recognizer will receive.

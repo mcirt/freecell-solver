@@ -78,13 +78,13 @@
       </header>
 
       <div id="scan-picker-panel" class="scan-picker-panel">
-        <p>Take a new photo of a FreeCell board, or select an existing screenshot or picture from Photos or Files.</p>
-        <div class="scan-source-buttons">
-          <label id="take-board-photo" class="scan-primary scan-file-label" for="board-camera-input">📷 Take Photo</label>
-          <label id="choose-board-picture" class="scan-secondary scan-file-label" for="board-picture-input">🖼 Choose Screenshot or Picture</label>
+        <p>Choose a screenshot, an existing picture, or take a new photo.</p>
+        <div class="scan-source-buttons single-source">
+          <label id="choose-board-picture" class="scan-primary scan-file-control">
+            <span>🖼 Choose Screenshot, Photo, or File</span>
+            <input id="board-picture-input" type="file" accept="image/*" aria-label="Choose a screenshot, photo, or image file">
+          </label>
         </div>
-        <input id="board-camera-input" class="scan-file-input" type="file" accept="image/*" capture="environment">
-        <input id="board-picture-input" class="scan-file-input" type="file" accept="image/*">
       </div>
 
       <div id="scan-preview-panel" class="scan-preview-panel" hidden>
@@ -110,8 +110,14 @@
         <div class="scan-actions">
           <button id="scan-choose-another" class="scan-secondary" type="button">Choose Another</button>
           <button id="scan-reset-calibration" class="scan-secondary" type="button">Reset Calibration</button>
+          <button id="scan-preview-crops" class="scan-secondary" type="button">Preview 52 Crops</button>
           <button id="scan-confirm-crops" class="scan-primary" type="button">Confirm Crops</button>
         </div>
+        <section id="scan-crop-preview-panel" class="scan-crop-preview-panel" hidden aria-label="Cropped card corner preview">
+          <h3>52 cropped rank-and-suit regions</h3>
+          <p>Each image should contain the upper-left rank and suit of exactly one card.</p>
+          <div id="scan-crop-preview-grid" class="scan-crop-preview-grid"></div>
+        </section>
       </div>
     </div>
   </section>
