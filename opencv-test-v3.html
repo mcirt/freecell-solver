@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>OpenCV Standalone Test v3</title>
+
+<script>
+function log(msg){
+    document.getElementById("log").textContent += msg + "\n";
+}
+
+function ok(id,msg){
+    document.getElementById(id).textContent="✅ "+msg;
+}
+
+function bad(id,msg){
+    document.getElementById(id).textContent="❌ "+msg;
+}
+
+window.addEventListener("load",()=>{
+
+    log("Loading opencv.js...");
+
+    const script=document.createElement("script");
+    script.src="js/opencv.js?v="+Date.now();
+
+    script.onload=function(){
+
+        ok("step1","opencv.js downloaded");
+
+        if(!window.cv){
+            bad("step2","window.cv missing");
+            return;
+        }
+
+        ok("step2","window.cv exists");
+
+        //---------------------------------------------------
+        // THIS IS THE IMPORTANT PART
+        //---------------------------------------------------
+
+        if(typeof window.cv.then==="function"){
+
+            log("cv.then() detected.");
+
+            window.cv.then(function(cv){
+
+                ok("step3","OpenCV runtime initialized");
+
+                try{
+
+                    let m=new cv.Mat();
+
+                    m.delete();
+
+                    ok("step4","cv.Mat works");
+
+                    log("SUCCESS");
+
+                }
+                catch(e){
+
+                    bad("step4",e.message);
+
+                    console.error(e);
+                }
+
+            });
+
+        }
+        else{
+
+            bad("step3","cv.then not found");
+
+        }
+
+    };
+
+    script.onerror=function(){
+
+        bad("step1","could not download opencv.js");
+
+    };
+
+    document.head.appendChild(script);
+
+});
+</script>
+
+<style>
+
+body{
+background:#08214a;
+color:white;
+font-family:Arial;
+padding:30px;
+}
+
+.card{
+
+border:2px solid #3b8cff;
+border-radius:12px;
+padding:20px;
+margin-bottom:15px;
+
+}
+
+pre{
+
+background:black;
+padding:15px;
+color:#7cff7c;
+
+}
+
+</style>
+
+</head>
+
+<body>
+
+<h1>OpenCV Test v3</h1>
+
+<div id="step1" class="card">Loading script...</div>
+
+<div id="step2" class="card">Checking window.cv...</div>
+
+<div id="step3" class="card">Waiting for runtime...</div>
+
+<div id="step4" class="card">Testing cv.Mat...</div>
+
+<pre id="log"></pre>
+
+</body>
+</html>
