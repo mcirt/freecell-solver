@@ -79,11 +79,10 @@
 
       <div id="scan-picker-panel" class="scan-picker-panel">
         <p>Choose a screenshot, an existing picture, or take a new photo.</p>
-        <div class="scan-source-buttons single-source">
-          <label id="choose-board-picture" class="scan-primary scan-file-control">
-            <span>🖼 Choose Screenshot, Photo, or File</span>
-            <input id="board-picture-input" type="file" accept="image/*" aria-label="Choose a screenshot, photo, or image file">
-          </label>
+        <div class="scan-native-picker-wrap">
+          <label for="board-picture-input" class="scan-native-picker-label">Choose screenshot, photo, or file</label>
+          <input id="board-picture-input" class="scan-native-picker" type="file" accept="image/*,.heic,.heif" aria-label="Choose a screenshot, photo, or image file">
+          <p class="scan-native-picker-note">This uses Safari’s native picker—the option that worked reliably on your iPhone.</p>
         </div>
       </div>
 
