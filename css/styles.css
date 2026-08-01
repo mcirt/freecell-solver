@@ -459,3 +459,11 @@ button, textarea, select, a { font: inherit; }
 @media (max-width: 620px) {
   .scan-column-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* v7 constrained scanner validation */
+.scan-crop-invalid {
+  border-color:#ffb02e !important;
+  background:rgba(255,176,46,.10) !important;
+  box-shadow:0 0 7px rgba(255,176,46,.75), inset 0 0 6px rgba(255,176,46,.18) !important;
+}
+.scan-crop-invalid span { background:#ffb02e !important; color:#251400 !important; }
