@@ -1,24 +1,25 @@
 (function () {
   "use strict";
 
-  const SOURCES = [
-    "https://docs.opencv.org/4.10.0/opencv.js",
-    "https://docs.opencv.org/4.x/opencv.js"
-  ];
-  const TIMEOUT_MS = 30000;
-  let currentAttempt = 0;
-  let settled = false;
+  const LOCAL_SOURCE = "js/opencv.js?v=11";
+  const TIMEOUT_MS = 45000;
+  let timer = null;
+  let script = null;
   let resolveReady;
   let rejectReady;
-  let timer = null;
-  let activeScript = null;
+  let settled = false;
 
   function dispatch(name, detail) {
     window.dispatchEvent(new CustomEvent(name, { detail: detail || {} }));
   }
 
   function isReady(cv) {
-    return !!(cv && typeof cv.Mat === "function" && typeof cv.imread === "function" && typeof cv.cvtColor === "function");
+    return !!(
+      cv &&
+      typeof cv.Mat === "function" &&
+      typeof cv.imread === "function" &&
+      typeof cv.cvtColor === "function"
+    );
   }
 
   function finish(cv) {
@@ -26,82 +27,75 @@
     settled = true;
     window.clearTimeout(timer);
     window.cv = cv;
-    dispatch("freecell-opencv-ready", { source: SOURCES[Math.max(0, currentAttempt - 1)] });
+    dispatch("freecell-opencv-ready", { source: LOCAL_SOURCE });
     resolveReady(cv);
   }
 
-  function fail(error) {
+  function fail(message) {
     if (settled) return;
-    window.clearTimeout(timer);
-    if (currentAttempt < SOURCES.length) {
-      loadNext();
-      return;
-    }
     settled = true;
-    dispatch("freecell-opencv-error", { message: error && error.message ? error.message : String(error) });
-    rejectReady(error instanceof Error ? error : new Error(String(error)));
+    window.clearTimeout(timer);
+    const error = message instanceof Error ? message : new Error(String(message));
+    dispatch("freecell-opencv-error", {
+      message: error.message,
+      source: LOCAL_SOURCE
+    });
+    rejectReady(error);
   }
 
   function waitForRuntime() {
     const cv = window.cv;
+
     if (cv && typeof cv.then === "function") {
       cv.then(finish).catch(fail);
       return;
     }
+
     if (isReady(cv)) {
       finish(cv);
       return;
     }
-    window.setTimeout(waitForRuntime, 100);
+
+    if (!settled) window.setTimeout(waitForRuntime, 100);
   }
 
-  function loadNext() {
-    window.clearTimeout(timer);
-    if (activeScript) activeScript.remove();
-    if (currentAttempt >= SOURCES.length) {
-      fail(new Error("OpenCV.js could not be loaded from the available sources."));
-      return;
-    }
+  function loadLocalOpenCv() {
+    settled = false;
+    dispatch("freecell-opencv-loading", { source: LOCAL_SOURCE, attempt: 1 });
 
-    const source = SOURCES[currentAttempt++];
-    dispatch("freecell-opencv-loading", { source, attempt: currentAttempt });
-
-    // OpenCV's Emscripten build can signal readiness through this callback.
     window.Module = window.Module || {};
-    const previousCallback = window.Module.onRuntimeInitialized;
+    const oldCallback = window.Module.onRuntimeInitialized;
     window.Module.onRuntimeInitialized = function () {
-      if (typeof previousCallback === "function") previousCallback();
+      if (typeof oldCallback === "function") oldCallback();
       waitForRuntime();
     };
 
-    activeScript = document.createElement("script");
-    activeScript.async = true;
-    activeScript.src = source;
-    activeScript.dataset.freecellOpenCv = "true";
-    activeScript.onload = waitForRuntime;
-    activeScript.onerror = function () {
-      fail(new Error("OpenCV.js download failed."));
+    script = document.createElement("script");
+    script.async = true;
+    script.src = LOCAL_SOURCE;
+    script.dataset.freecellOpenCv = "local";
+    script.onload = waitForRuntime;
+    script.onerror = function () {
+      fail(new Error("Local OpenCV file was not found at js/opencv.js."));
     };
-    document.head.appendChild(activeScript);
+    document.head.appendChild(script);
 
     timer = window.setTimeout(function () {
-      fail(new Error("OpenCV.js timed out while loading."));
+      fail(new Error("Local OpenCV timed out while initializing."));
     }, TIMEOUT_MS);
   }
 
   function createPromise() {
-    settled = false;
-    currentAttempt = 0;
     window.freecellCvReady = new Promise(function (resolve, reject) {
       resolveReady = resolve;
       rejectReady = reject;
     });
-    loadNext();
+    loadLocalOpenCv();
     return window.freecellCvReady;
   }
 
   window.freecellCvRetry = function () {
-    if (activeScript) activeScript.remove();
+    if (script) script.remove();
     window.cv = undefined;
     return createPromise();
   };
