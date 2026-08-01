@@ -21,7 +21,7 @@
   const columnCountsEl = byId("scan-column-counts");
   const message = byId("input-message");
 
-  const STORAGE_KEY = "freecellScanCalibrationV6";
+  const STORAGE_KEY = "freecellScanCalibrationV7";
   const COLUMN_COUNTS = [7, 7, 7, 7, 6, 6, 6, 6];
   const DEFAULTS = {
     top: 53.7,
@@ -140,63 +140,108 @@
 
   function clamp(value, low, high) { return Math.max(low, Math.min(high, value)); }
 
-  function scoreCandidate(x, y, w, h) {
+  function analyzeCandidate(x, y, w, h) {
     const imgW = sourceCanvas.width;
     const imgH = sourceCanvas.height;
     const sx = clamp(Math.round(x), 0, imgW - 2);
-    const sy = clamp(Math.round(y), 2, imgH - 3);
-    const sw = clamp(Math.round(w * 0.52), 8, imgW - sx);
-    const sh = clamp(Math.round(h * 0.72), 8, imgH - sy);
-    if (sw < 4 || sh < 4) return -Infinity;
+    const sy = clamp(Math.round(y), 1, imgH - 2);
 
-    const data = sourceCtx.getImageData(sx, sy, sw, sh).data;
-    let white = 0, ink = 0, contrast = 0, total = 0;
-    let minLum = 255, maxLum = 0;
-    const stride = Math.max(1, Math.floor(Math.min(sw, sh) / 25));
-    for (let py = 0; py < sh; py += stride) {
-      for (let px = 0; px < sw; px += stride) {
-        const idx = (py * sw + px) * 4;
-        const r = data[idx], g = data[idx + 1], b = data[idx + 2];
-        const lum = (r * 0.299 + g * 0.587 + b * 0.114);
-        minLum = Math.min(minLum, lum); maxLum = Math.max(maxLum, lum);
-        if (r > 178 && g > 178 && b > 178 && Math.max(r, g, b) - Math.min(r, g, b) < 58) white += 1;
-        const dark = lum < 112;
-        const red = r > 120 && r > g * 1.28 && r > b * 1.18;
-        if (dark || red) ink += 1;
+    // Only inspect the upper-left part of the crop. That is where the small
+    // rank and suit live; ignoring the large central suit/face artwork keeps
+    // the detector from jumping to unrelated high-contrast shapes.
+    const sw = clamp(Math.round(w * 0.62), 12, imgW - sx);
+    const sh = clamp(Math.round(h * 0.78), 10, imgH - sy);
+    if (sw < 8 || sh < 8) return { score: -Infinity, valid: false, whiteRatio: 0, inkRatio: 0 };
+
+    const pixels = sourceCtx.getImageData(sx, sy, sw, sh).data;
+    let light = 0;
+    let ink = 0;
+    let teal = 0;
+    let total = 0;
+    let minLum = 255;
+    let maxLum = 0;
+    const sampleStep = Math.max(1, Math.floor(Math.min(sw, sh) / 28));
+
+    for (let py = 0; py < sh; py += sampleStep) {
+      for (let px = 0; px < sw; px += sampleStep) {
+        const i = (py * sw + px) * 4;
+        const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2];
+        const lum = r * 0.299 + g * 0.587 + b * 0.114;
+        minLum = Math.min(minLum, lum);
+        maxLum = Math.max(maxLum, lum);
+
+        const nearlyNeutral = Math.max(r, g, b) - Math.min(r, g, b) < 52;
+        if (lum > 164 && nearlyNeutral) light += 1;
+
+        const darkInk = lum < 118 && (b >= r * 0.72 || r < 95);
+        const redInk = r > 132 && r > g * 1.25 && r > b * 1.12;
+        if (darkInk || redInk) ink += 1;
+
+        // Typical table/background color in this app: green/teal with green
+        // and blue clearly stronger than red.
+        if (g > r * 1.18 && b > r * 1.08 && g > 75) teal += 1;
         total += 1;
       }
     }
-    contrast = (maxLum - minLum) / 255;
 
-    const edgeW = Math.max(8, Math.round(sw * 0.9));
-    const above = sourceCtx.getImageData(sx, clamp(sy - 3, 0, imgH - 1), edgeW, 1).data;
-    const inside = sourceCtx.getImageData(sx, clamp(sy + 3, 0, imgH - 1), edgeW, 1).data;
+    const lightRatio = light / Math.max(1, total);
+    const inkRatio = ink / Math.max(1, total);
+    const tealRatio = teal / Math.max(1, total);
+    const contrast = (maxLum - minLum) / 255;
+
+    // Compare a thin row just above the candidate with one just inside it.
+    // A real card top usually gets brighter as we enter the white card.
+    const edgeW = Math.max(10, Math.round(sw * 0.88));
+    const aboveY = clamp(sy - 2, 0, imgH - 1);
+    const insideY = clamp(sy + Math.max(2, Math.round(sh * 0.10)), 0, imgH - 1);
+    const above = sourceCtx.getImageData(sx, aboveY, edgeW, 1).data;
+    const inside = sourceCtx.getImageData(sx, insideY, edgeW, 1).data;
     let aboveLum = 0, insideLum = 0;
     for (let i = 0; i < edgeW; i += 1) {
       const j = i * 4;
       aboveLum += above[j] * .299 + above[j + 1] * .587 + above[j + 2] * .114;
       insideLum += inside[j] * .299 + inside[j + 1] * .587 + inside[j + 2] * .114;
     }
-    const edge = clamp((insideLum - aboveLum) / edgeW / 90, -1, 1);
-    const whiteRatio = white / Math.max(1, total);
-    const inkRatio = ink / Math.max(1, total);
+    const edgeGain = clamp((insideLum - aboveLum) / edgeW / 80, -1, 1);
 
-    // A card corner should be mostly light, include some dark/red rank ink,
-    // and normally have a brightness transition at its top edge.
-    return whiteRatio * 1.15 + Math.min(inkRatio, 0.24) * 4.2 + contrast * 0.55 + edge * 0.85;
+    const score =
+      lightRatio * 2.15 +
+      Math.min(inkRatio, 0.30) * 3.15 +
+      contrast * 0.34 +
+      Math.max(0, edgeGain) * 0.42 -
+      tealRatio * 1.35;
+
+    // Validation is deliberately conservative. A box can still be shown even
+    // when invalid, but it will be marked as a warning instead of a false ✓.
+    const valid = lightRatio >= 0.28 && inkRatio >= 0.018 && tealRatio <= 0.48;
+    return { score, valid, lightRatio, inkRatio, tealRatio };
   }
 
-  function findBestY(xPx, guessYPx, cropWPx, cropHPx, radiusPx, minY, maxY) {
-    const start = clamp(Math.round(guessYPx - radiusPx), minY, maxY);
-    const end = clamp(Math.round(guessYPx + radiusPx), minY, maxY);
-    let bestY = clamp(Math.round(guessYPx), minY, maxY);
-    let bestScore = -Infinity;
-    const step = Math.max(1, Math.round(sourceCanvas.height / 1800));
-    for (let y = start; y <= end; y += step) {
-      const score = scoreCandidate(xPx, y, cropWPx, cropHPx);
-      if (score > bestScore) { bestScore = score; bestY = y; }
+  function findConstrainedY(xPx, expectedYPx, cropWPx, cropHPx, radiusPx) {
+    const imgH = sourceCanvas.height;
+    const start = clamp(Math.round(expectedYPx - radiusPx), 0, imgH - 2);
+    const end = clamp(Math.round(expectedYPx + radiusPx), 0, imgH - 2);
+    const scanStep = Math.max(1, Math.round(imgH / 2600));
+    let best = {
+      y: clamp(Math.round(expectedYPx), 0, imgH - 2),
+      score: -Infinity,
+      valid: false,
+      lightRatio: 0,
+      inkRatio: 0,
+      tealRatio: 0
+    };
+
+    for (let y = start; y <= end; y += scanStep) {
+      const analysis = analyzeCandidate(xPx, y, cropWPx, cropHPx);
+      // Add a strong distance penalty so the box can only fine-tune around the
+      // calibrated row; it cannot jump to crowns, large suit art, or borders.
+      const distancePenalty = Math.abs(y - expectedYPx) / Math.max(1, radiusPx) * 0.42;
+      const constrainedScore = analysis.score - distancePenalty;
+      if (constrainedScore > best.score) {
+        best = Object.assign({ y, score: constrainedScore }, analysis);
+      }
     }
-    return { y: bestY, score: bestScore };
+    return best;
   }
 
   function detectCardTops() {
@@ -208,67 +253,65 @@
     const imgH = image.naturalHeight;
     const cropWPx = calibration.cropWidth / 100 * imgW;
     const cropHPx = calibration.cropHeight / 100 * imgH;
-    const expectedStepPx = calibration.rowStep / 100 * imgH;
-    const firstRadius = Math.max(12, imgH * 0.026);
-    const laterRadius = Math.max(10, imgH * 0.018);
-    const minGap = Math.max(12, expectedStepPx * 0.55);
-    const maxGap = expectedStepPx * 1.45;
+    const rowStepPx = calibration.rowStep / 100 * imgH;
 
+    // Maximum correction is intentionally small: approximately ±0.38% of the
+    // image height. The calibrated top and uniform row step remain authoritative.
+    const fineRadiusPx = Math.max(3, imgH * 0.0038);
     const regions = [];
+    const columnResults = [];
     let number = 1;
-    const columnScores = [];
 
     COLUMN_COUNTS.forEach((count, column) => {
       const xPct = calibration.left + column * calibration.spacing;
       const xPx = xPct / 100 * imgW;
-      const ys = [];
-      const scores = [];
-      let runningStep = expectedStepPx;
+      const results = [];
 
       for (let row = 0; row < count; row += 1) {
-        const guess = row === 0
-          ? calibration.top / 100 * imgH
-          : ys[row - 1] + runningStep;
-        const minY = row === 0 ? imgH * 0.35 : ys[row - 1] + minGap;
-        const maxY = row === 0 ? imgH * 0.72 : ys[row - 1] + maxGap;
-        const found = findBestY(xPx, guess, cropWPx, cropHPx, row === 0 ? firstRadius : laterRadius, minY, maxY);
-        ys.push(found.y);
-        scores.push(found.score);
-        if (row > 0) {
-          const observed = ys[row] - ys[row - 1];
-          runningStep = runningStep * 0.68 + observed * 0.32;
-        }
-      }
-
-      ys.forEach((y, row) => {
+        const expectedYPx = calibration.top / 100 * imgH + row * rowStepPx;
+        const found = findConstrainedY(xPx, expectedYPx, cropWPx, cropHPx, fineRadiusPx);
+        results.push(found);
         regions.push({
-          number: number++, column, row,
+          number: number++,
+          column,
+          row,
           left: xPct,
-          top: y / imgH * 100,
+          top: found.y / imgH * 100,
+          expectedTop: expectedYPx / imgH * 100,
           width: calibration.cropWidth,
           height: calibration.cropHeight,
-          confidence: scores[row],
+          confidence: found.score,
+          valid: found.valid,
+          lightRatio: found.lightRatio,
+          inkRatio: found.inkRatio,
+          tealRatio: found.tealRatio,
           detected: true
         });
-      });
-      columnScores.push(scores);
+      }
+      columnResults.push(results);
     });
 
     detectedRegions = regions;
     renderRegions();
-    renderColumnCounts(columnScores);
+    renderColumnCounts(columnResults);
     cropPreviewPanel.hidden = true;
-    announce("Detected 52 card-top positions. Review the cyan boxes, then preview the crops.", "success");
+
+    const validCount = regions.filter((region) => region.valid).length;
+    announce(
+      "Placed 52 constrained card regions; " + validCount + " currently pass the card-corner check.",
+      validCount === 52 ? "success" : ""
+    );
   }
 
-  function renderColumnCounts(columnScores) {
+  function renderColumnCounts(columnResults) {
     columnCountsEl.replaceChildren();
-    COLUMN_COUNTS.forEach((count, column) => {
-      const average = columnScores[column].reduce((a, b) => a + b, 0) / Math.max(1, columnScores[column].length);
+    COLUMN_COUNTS.forEach((expectedCount, column) => {
+      const results = columnResults[column] || [];
+      const validCount = results.filter((result) => result.valid).length;
       const item = document.createElement("span");
-      item.className = "scan-column-count" + (average < 0.55 ? " scan-column-warning" : "");
-      item.textContent = "Column " + (column + 1) + ": " + count + (average < 0.55 ? " ?" : " ✓");
-      item.title = "Average detection score: " + average.toFixed(2);
+      item.className = "scan-column-count" + (validCount !== expectedCount ? " scan-column-warning" : "");
+      item.textContent = "Column " + (column + 1) + ": " + validCount + "/" + expectedCount + (validCount === expectedCount ? " ✓" : "");
+      item.title = "Validated card-corner regions, not merely boxes created.";
       columnCountsEl.appendChild(item);
     });
   }
@@ -278,12 +321,12 @@
     const regions = detectedRegions.length ? detectedRegions : makeFixedRegions();
     regions.forEach((region) => {
       const crop = document.createElement("div");
-      crop.className = "scan-crop" + (region.detected ? " scan-crop-detected" : "");
+      crop.className = "scan-crop" + (region.detected ? " scan-crop-detected" : "") + (region.detected && !region.valid ? " scan-crop-invalid" : "");
       crop.style.left = region.left + "%";
       crop.style.top = region.top + "%";
       crop.style.width = region.width + "%";
       crop.style.height = region.height + "%";
-      crop.title = "Column " + (region.column + 1) + ", card " + (region.row + 1) + (region.detected ? "; score " + region.confidence.toFixed(2) : "");
+      crop.title = "Column " + (region.column + 1) + ", card " + (region.row + 1) + (region.detected ? "; " + (region.valid ? "valid" : "needs adjustment") + "; score " + region.confidence.toFixed(2) : "");
       crop.innerHTML = "<span>" + region.number + "</span>";
       cropsEl.appendChild(crop);
     });
@@ -399,7 +442,7 @@
       detectedRegions: detectedRegions.map(({ number, column, row, left, top, width, height, confidence }) => ({ number, column, row, left, top, width, height, confidence })),
       savedAt: new Date().toISOString()
     };
-    sessionStorage.setItem("freecellPendingScanV6", JSON.stringify(scanData));
+    sessionStorage.setItem("freecellPendingScanV7", JSON.stringify(scanData));
     setDialogOpen(false);
     announce("Card-top positions saved. The 52 detected crops are ready for rank-and-suit recognition.", "success");
   }
