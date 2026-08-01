@@ -467,3 +467,58 @@ button, textarea, select, a { font: inherit; }
   box-shadow:0 0 7px rgba(255,176,46,.75), inset 0 0 6px rgba(255,176,46,.18) !important;
 }
 .scan-crop-invalid span { background:#ffb02e !important; color:#251400 !important; }
+
+
+/* v8 labeled strip diagnostics */
+.scan-crops { pointer-events:auto; }
+.scan-labeled-strip {
+  appearance:none;
+  -webkit-appearance:none;
+  padding:0;
+  margin:0;
+  cursor:pointer;
+  overflow:visible;
+  background:rgba(32,255,240,.10);
+}
+.scan-labeled-strip span {
+  top:auto;
+  bottom:-18px;
+  left:0;
+  min-width:100%;
+  height:17px;
+  padding:0 2px;
+  border-radius:0 0 4px 4px;
+  color:#fff;
+  background:rgba(0,35,72,.93);
+  font-size:clamp(7px,1.65vw,11px);
+  letter-spacing:.02em;
+  box-shadow:none;
+}
+.scan-region-selected {
+  border-color:#ffe64b !important;
+  box-shadow:0 0 12px rgba(255,230,75,.95), inset 0 0 8px rgba(255,230,75,.28) !important;
+  outline:2px solid rgba(255,230,75,.65);
+  outline-offset:2px;
+}
+.scan-crop-preview-button {
+  appearance:none;
+  -webkit-appearance:none;
+  padding:0;
+  width:100%;
+  cursor:pointer;
+  text-align:inherit;
+  color:inherit;
+  font:inherit;
+}
+.scan-crop-preview-caption {
+  display:block;
+  padding:7px 3px;
+  background:#062956;
+  color:#fff;
+  font-size:clamp(11px,2.6vw,17px);
+  line-height:1;
+}
+.scan-crop-preview-button canvas { display:block; width:100%; height:auto; }
+@media (max-width:700px) {
+  .scan-labeled-strip span { display:grid; }
+}
