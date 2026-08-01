@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>OpenCV Standalone Test</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: linear-gradient(180deg, #061a3b, #082d61);
+      color: #f5f8ff;
+      padding: max(24px, env(safe-area-inset-top)) 18px max(32px, env(safe-area-inset-bottom));
+    }
+    main { width: min(720px, 100%); margin: 0 auto; }
+    h1 { margin: 0 0 8px; font-size: clamp(30px, 8vw, 46px); }
+    .subtitle { color: #b9d5ff; line-height: 1.45; margin: 0 0 22px; }
+    .card {
+      background: rgba(1, 19, 48, 0.82);
+      border: 2px solid #2779ca;
+      border-radius: 18px;
+      padding: 18px;
+      box-shadow: 0 14px 34px rgba(0,0,0,.28);
+    }
+    .status-row {
+      display: grid;
+      grid-template-columns: 30px 1fr;
+      gap: 12px;
+      align-items: start;
+      padding: 13px 0;
+      border-bottom: 1px solid rgba(167, 205, 255, .18);
+    }
+    .status-row:last-child { border-bottom: 0; }
+    .icon { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; }
+    .pending .icon { background: #7a6420; color: #ffe88c; }
+    .ok .icon { background: #075f43; color: #6effcb; }
+    .error .icon { background: #7a2330; color: #ff9ead; }
+    .label { font-weight: 750; font-size: 18px; }
+    .detail { margin-top: 4px; color: #b9d5ff; font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+    .error .detail { color: #ffc1c9; }
+    button {
+      width: 100%;
+      margin-top: 18px;
+      padding: 15px 18px;
+      border: 0;
+      border-radius: 14px;
+      background: linear-gradient(#22c979, #159a58);
+      color: white;
+      font: inherit;
+      font-weight: 800;
+      font-size: 18px;
+      box-shadow: 0 5px 0 #08643a;
+    }
+    button:active { transform: translateY(2px); box-shadow: 0 3px 0 #08643a; }
+    pre {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      margin: 18px 0 0;
+      padding: 14px;
+      border-radius: 12px;
+      background: #020d20;
+      color: #9dd4ff;
+      font-size: 12px;
+      line-height: 1.45;
+      min-height: 72px;
+    }
+    .note { margin-top: 18px; color: #b9d5ff; font-size: 14px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>OpenCV Standalone Test</h1>
+  <p class="subtitle">This page tests only <code>js/opencv.js</code>. It does not load RequireJS, the FreeCell solver, the scanner, or your main stylesheet.</p>
+
+  <section class="card" aria-live="polite">
+    <div id="file-step" class="status-row pending">
+      <span class="icon">…</span>
+      <div><div class="label">Loading js/opencv.js</div><div class="detail">Waiting for the script file.</div></div>
+    </div>
+    <div id="global-step" class="status-row pending">
+      <span class="icon">…</span>
+      <div><div class="label">Checking window.cv</div><div class="detail">Not checked yet.</div></div>
+    </div>
+    <div id="runtime-step" class="status-row pending">
+      <span class="icon">…</span>
+      <div><div class="label">Waiting for OpenCV runtime</div><div class="detail">Not checked yet.</div></div>
+    </div>
+    <div id="mat-step" class="status-row pending">
+      <span class="icon">…</span>
+      <div><div class="label">Running cv.Mat test</div><div class="detail">Not checked yet.</div></div>
+    </div>
+
+    <button id="retry" type="button">Retry OpenCV Test</button>
+    <pre id="log">Test page loaded.</pre>
+  </section>
+
+  <p class="note">Upload this file to the repository root as <strong>opencv-test.html</strong>, then open <code>https://mcirt.github.io/freecell-solver/opencv-test-v2.html?v=2</code>.</p>
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  const logEl = document.getElementById("log");
+  const retryButton = document.getElementById("retry");
+  const steps = {
+    file: document.getElementById("file-step"),
+    global: document.getElementById("global-step"),
+    runtime: document.getElementById("runtime-step"),
+    mat: document.getElementById("mat-step")
+  };
+
+  function log(message) {
+    const stamp = new Date().toLocaleTimeString();
+    logEl.textContent += `\n[${stamp}] ${message}`;
+  }
+
+  function setStep(name, state, detail) {
+    const row = steps[name];
+    row.className = `status-row ${state}`;
+    row.querySelector(".icon").textContent = state === "ok" ? "✓" : state === "error" ? "!" : "…";
+    row.querySelector(".detail").textContent = detail;
+  }
+
+  function resetUi() {
+    setStep("file", "pending", "Waiting for the script file.");
+    setStep("global", "pending", "Not checked yet.");
+    setStep("runtime", "pending", "Not checked yet.");
+    setStep("mat", "pending", "Not checked yet.");
+    logEl.textContent = "Starting corrected OpenCV test (no await on window.cv).";
+  }
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  async function waitForMat(maxWaitMs) {
+    const started = Date.now();
+
+    while (Date.now() - started < maxWaitMs) {
+      // This OpenCV build has a custom .then() method, but it is not a
+      // normal Promise. Awaiting window.cv can loop forever. Poll cv.Mat.
+      if (window.cv && typeof window.cv.Mat === "function") {
+        return window.cv;
+      }
+
+      await sleep(100);
+    }
+
+    throw new Error("Timed out waiting for cv.Mat after 120 seconds.");
+  }
+
+  function loadScript() {
+    return new Promise((resolve, reject) => {
+      const old = document.getElementById("opencv-script");
+      if (old) old.remove();
+
+      try { delete window.cv; } catch (_) { window.cv = undefined; }
+
+      const script = document.createElement("script");
+      script.id = "opencv-script";
+      script.src = `js/opencv.js?standalone=${Date.now()}`;
+      script.async = false;
+      script.onload = () => resolve(script.src);
+      script.onerror = () => reject(new Error(`The browser could not load ${script.src}`));
+      document.head.appendChild(script);
+    });
+  }
+
+  async function runTest() {
+    retryButton.disabled = true;
+    resetUi();
+
+    try {
+      const source = await loadScript();
+      setStep("file", "ok", `Script loaded from ${source}`);
+      log("opencv.js load event fired.");
+
+      if (!window.cv) {
+        setStep("global", "pending", "Script loaded; waiting briefly for window.cv.");
+      } else {
+        setStep("global", "ok", `window.cv exists (${typeof window.cv}).`);
+      }
+
+      const cv = await waitForMat(120000);
+      setStep("global", "ok", `window.cv exists (${typeof cv}).`);
+      setStep("runtime", "ok", "cv.Mat is available; the OpenCV runtime is ready.");
+      log("cv.Mat became available.");
+
+      let mat = null;
+      let gray = null;
+      try {
+        mat = new cv.Mat(2, 2, cv.CV_8UC4, new cv.Scalar(10, 20, 30, 255));
+        gray = new cv.Mat();
+        cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
+        const pixel = gray.ucharPtr(0, 0)[0];
+        setStep("mat", "ok", `Created a 2×2 matrix and converted it to grayscale. First pixel: ${pixel}.`);
+        log(`cv.Mat/cvtColor test passed. OpenCV version: ${cv.getBuildInformation ? "build information available" : "version API unavailable"}.`);
+      } finally {
+        if (gray) gray.delete();
+        if (mat) mat.delete();
+      }
+    } catch (error) {
+      const message = error && error.message ? error.message : String(error);
+      log(`ERROR: ${message}`);
+
+      if (steps.file.classList.contains("pending")) {
+        setStep("file", "error", message);
+      } else if (!window.cv) {
+        setStep("global", "error", "opencv.js loaded, but it did not create window.cv.");
+        setStep("runtime", "error", message);
+      } else if (!(window.cv && typeof window.cv.Mat === "function")) {
+        setStep("runtime", "error", message);
+      } else {
+        setStep("mat", "error", message);
+      }
+    } finally {
+      retryButton.disabled = false;
+    }
+  }
+
+  window.addEventListener("error", event => {
+    if (event && event.message) log(`window error: ${event.message}`);
+  });
+
+  window.addEventListener("unhandledrejection", event => {
+    const reason = event.reason && event.reason.message ? event.reason.message : String(event.reason);
+    log(`unhandled rejection: ${reason}`);
+  });
+
+  retryButton.addEventListener("click", runTest);
+  runTest();
+}());
+</script>
+</body>
+</html>
