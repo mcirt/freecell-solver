@@ -389,3 +389,44 @@ button, textarea, select, a { font: inherit; }
 @media (min-width: 700px) {
   .scan-crop-preview-grid { grid-template-columns: repeat(8, minmax(0, 1fr)); }
 }
+
+/* Scan calibration v5: use one plain native Safari file control only. */
+.scan-native-picker-wrap {
+  display:grid;
+  gap:12px;
+  width:min(620px,100%);
+  margin-inline:auto;
+  text-align:left;
+}
+.scan-native-picker-label {
+  color:#fff;
+  font-size:1.05rem;
+  font-weight:800;
+}
+.scan-native-picker {
+  display:block;
+  width:100%;
+  min-height:56px;
+  box-sizing:border-box;
+  padding:10px;
+  border:2px solid #20bd79;
+  border-radius:12px;
+  color:#062b5d;
+  background:#fff;
+  font:inherit;
+}
+.scan-native-picker::file-selector-button {
+  min-height:38px;
+  margin-right:12px;
+  padding:6px 14px;
+  border:0;
+  border-radius:8px;
+  color:#fff;
+  background:#128554;
+  font-weight:800;
+}
+.scan-native-picker-note {
+  margin:0 !important;
+  color:#a9c8e8 !important;
+  font-size:.9rem !important;
+}
