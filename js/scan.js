@@ -92,7 +92,7 @@
     }).catch((error) => {
       cvReady = false;
       cvFailure = error;
-      updateCvStatus("OpenCV failed to load. Tap Run OpenCV Test to retry.", "warning");
+      updateCvStatus(`OpenCV failed to load. ${error && error.message ? error.message : "Unknown loader error."} Tap Run OpenCV Test to retry.`, "warning");
       detectButton.disabled = false;
     });
   }
@@ -102,8 +102,10 @@
       const attempt = event.detail && event.detail.attempt ? event.detail.attempt : 1;
       updateCvStatus(`Loading OpenCV… attempt ${attempt}`, "working");
     });
-    window.addEventListener("freecell-opencv-error", () => {
-      updateCvStatus("OpenCV failed to load. Tap Run OpenCV Test to retry.", "warning");
+    window.addEventListener("freecell-opencv-error", (event) => {
+      const detail = event.detail || {};
+      const reason = detail.message ? ` Reason: ${detail.message}` : "";
+      updateCvStatus(`OpenCV failed to load.${reason} Tap Run OpenCV Test to retry.`, "warning");
     });
     attachOpenCvPromise(window.freecellCvReady);
   }
