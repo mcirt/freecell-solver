@@ -22,8 +22,8 @@
   const cvStatus = byId("opencv-status");
   const message = byId("input-message");
 
-  const STORAGE_KEY = "freecellScanCalibrationV9";
-  const SESSION_KEY = "freecellPendingScanV9";
+  const STORAGE_KEY = "freecellScanCalibrationV10";
+  const SESSION_KEY = "freecellPendingScanV10";
   const COLUMN_COUNTS = [7, 7, 7, 7, 6, 6, 6, 6];
 
   const DEFAULTS = {
@@ -76,22 +76,38 @@
     cvStatus.className = "opencv-status" + (kind ? " " + kind : "");
   }
 
-  function initializeOpenCvStatus() {
-    if (!window.freecellCvReady) {
+  function attachOpenCvPromise(promise) {
+    if (!promise) {
       cvFailure = new Error("OpenCV loader is missing.");
-      updateCvStatus("OpenCV unavailable — manual grid fallback active.", "warning");
+      updateCvStatus("OpenCV loader is missing.", "warning");
       return;
     }
-    window.freecellCvReady.then(() => {
+    updateCvStatus("Loading OpenCV…", "working");
+    promise.then(() => {
       cvReady = true;
-      updateCvStatus("OpenCV ready — automatic screenshot alignment is available.", "ready");
+      cvFailure = null;
+      updateCvStatus("OpenCV ready. Choose a screenshot to run the processing test.", "ready");
       detectButton.disabled = false;
+      if (image.naturalWidth && image.naturalHeight) runOpenCvProofTest();
     }).catch((error) => {
+      cvReady = false;
       cvFailure = error;
-      updateCvStatus("OpenCV could not load — manual grid fallback active.", "warning");
+      updateCvStatus("OpenCV failed to load. Tap Run OpenCV Test to retry.", "warning");
       detectButton.disabled = false;
     });
   }
+
+  function initializeOpenCvStatus() {
+    window.addEventListener("freecell-opencv-loading", (event) => {
+      const attempt = event.detail && event.detail.attempt ? event.detail.attempt : 1;
+      updateCvStatus(`Loading OpenCV… attempt ${attempt}`, "working");
+    });
+    window.addEventListener("freecell-opencv-error", () => {
+      updateCvStatus("OpenCV failed to load. Tap Run OpenCV Test to retry.", "warning");
+    });
+    attachOpenCvPromise(window.freecellCvReady);
+  }
+
 
   function setDialogOpen(open) {
     dialog.hidden = !open;
@@ -207,7 +223,6 @@
       strip.style.width = `${region.width * 100}%`;
       strip.style.height = `${region.height * 100}%`;
       strip.title = `${region.id} • ${region.valid ? "valid" : "review"} • score ${Number(region.score || 0).toFixed(2)}`;
-      strip.innerHTML = `<span>${region.id}</span>`;
       strip.addEventListener("click", () => selectRegion(region.id, "preview"));
       regionsLayer.appendChild(strip);
     });
@@ -265,148 +280,53 @@
     return { valid, score: light * 2.2 + Math.min(edge / 80, 1.5) };
   }
 
-  function autoDetectWithOpenCv() {
-    if (!image.naturalWidth || !image.naturalHeight) return;
+  function runOpenCvProofTest() {
+    if (!image.naturalWidth || !image.naturalHeight) {
+      announce("Choose a screenshot before running the OpenCV test.", "error");
+      return;
+    }
     if (!cvReady || !window.cv || typeof window.cv.imread !== "function") {
-      buildRigidRegions();
-      renderRegions();
-      announce(cvFailure ? "OpenCV is unavailable, so the calibrated rigid grid was rebuilt." : "OpenCV is still loading. Try again in a moment.", "error");
+      updateCvStatus("Retrying OpenCV…", "working");
+      detectButton.disabled = true;
+      const retry = typeof window.freecellCvRetry === "function" ? window.freecellCvRetry() : window.freecellCvReady;
+      attachOpenCvPromise(retry);
+      detectButton.disabled = false;
       return;
     }
 
-    updateCvStatus("OpenCV is analyzing the screenshot…", "working");
+    updateCvStatus("Image loaded. Running OpenCV grayscale test…", "working");
     detectButton.disabled = true;
     window.setTimeout(() => {
       let src;
-      let rgb;
-      let hsv;
       let gray;
-      let lightMask;
-      let gradY;
-      let absGradY;
       try {
         ensureSourceCanvas();
         const cv = window.cv;
         src = cv.imread(sourceCanvas);
-
-        const maxWidth = 900;
-        const scale = src.cols > maxWidth ? maxWidth / src.cols : 1;
-        if (scale < 1) {
-          const resized = new cv.Mat();
-          cv.resize(src, resized, new cv.Size(Math.round(src.cols * scale), Math.round(src.rows * scale)), 0, 0, cv.INTER_AREA);
-          src.delete();
-          src = resized;
-        }
-
-        rgb = new cv.Mat();
-        hsv = new cv.Mat();
         gray = new cv.Mat();
-        lightMask = new cv.Mat();
-        gradY = new cv.Mat();
-        absGradY = new cv.Mat();
-        cv.cvtColor(src, rgb, cv.COLOR_RGBA2RGB);
-        cv.cvtColor(rgb, hsv, cv.COLOR_RGB2HSV);
-        cv.cvtColor(rgb, gray, cv.COLOR_RGB2GRAY);
-
-        // Card faces are bright and relatively low-saturation compared with the teal table.
-        const low = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, 0, 125, 0]);
-        const high = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [179, 135, 255, 255]);
-        cv.inRange(hsv, low, high, lightMask);
-        low.delete();
-        high.delete();
-
-        cv.GaussianBlur(gray, gray, new cv.Size(3, 3), 0, 0, cv.BORDER_DEFAULT);
-        cv.Sobel(gray, gradY, cv.CV_16S, 0, 1, 3, 1, 0, cv.BORDER_DEFAULT);
-        cv.convertScaleAbs(gradY, absGradY);
-
-        const W = src.cols;
-        const H = src.rows;
-        const widthPx = calibration.cropWidth / 100 * W;
-        const heightPx = calibration.cropHeight / 100 * H;
-
-        const laneData = [];
-        for (let column = 0; column < 8; column += 1) {
-          const x0 = Math.max(0, Math.round((calibration.left + column * calibration.spacing) / 100 * W));
-          const x1 = Math.min(W, Math.round(x0 + widthPx * 0.88));
-          laneData.push({
-            light: sampleMaskRows(lightMask, x0, x1),
-            edge: sampleGrayRows(absGradY, x0, x1)
-          });
+        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+        if (gray.cols !== image.naturalWidth || gray.rows !== image.naturalHeight) {
+          throw new Error("OpenCV returned unexpected image dimensions.");
         }
-
-        // Fit one global top and one global row step. This prevents independent boxes from wandering.
-        const topMin = 30.0;
-        const topMax = 42.0;
-        const stepMin = 3.6;
-        const stepMax = 5.5;
-        let best = { score: -Infinity, top: calibration.top, step: calibration.rowStep };
-        for (let top = topMin; top <= topMax; top += 0.12) {
-          for (let step = stepMin; step <= stepMax; step += 0.04) {
-            let score = 0;
-            let valid = 0;
-            COLUMN_COUNTS.forEach((count, column) => {
-              const lane = laneData[column];
-              for (let row = 0; row < count; row += 1) {
-                const y = (top + row * step) / 100 * H;
-                const check = regionValidation(lane.light, lane.edge, y, heightPx, H);
-                score += check.score;
-                valid += check.valid ? 1 : 0;
-              }
-            });
-            score += valid * 0.7;
-            // Small preference for the previous calibration avoids needless jumps when scores tie.
-            score -= Math.abs(top - calibration.top) * 0.02;
-            score -= Math.abs(step - calibration.rowStep) * 0.05;
-            if (score > best.score) best = { score, top, step };
-          }
-        }
-
-        calibration.top = Number(best.top.toFixed(2));
-        calibration.rowStep = Number(best.step.toFixed(2));
-        syncControls();
-
-        const detected = [];
-        COLUMN_COUNTS.forEach((count, column) => {
-          const lane = laneData[column];
-          for (let row = 0; row < count; row += 1) {
-            const yNorm = (calibration.top + row * calibration.rowStep) / 100;
-            const yPx = yNorm * H;
-            const check = regionValidation(lane.light, lane.edge, yPx, heightPx, H);
-            detected.push({
-              id: `C${column + 1}-${row + 1}`,
-              column,
-              row,
-              x: (calibration.left + column * calibration.spacing) / 100,
-              y: yNorm,
-              width: calibration.cropWidth / 100,
-              height: calibration.cropHeight / 100,
-              valid: check.valid,
-              score: check.score,
-              method: "opencv-global-grid"
-            });
-          }
-        });
-        regions = detected;
-        renderRegions();
-        cropPreviewPanel.hidden = true;
-        saveCalibration();
-        const validCount = regions.filter((region) => region.valid).length;
-        updateCvStatus(`OpenCV fitted a rigid grid: top ${calibration.top.toFixed(2)}%, row step ${calibration.rowStep.toFixed(2)}%.`, validCount === 52 ? "ready" : "warning");
-        announce(`OpenCV aligned the grid and validated ${validCount} of 52 strips.`, validCount === 52 ? "success" : "");
+        updateCvStatus(`OpenCV test passed — processed ${gray.cols} × ${gray.rows} pixels in grayscale.`, "ready");
+        announce("OpenCV loaded and successfully processed the screenshot. The cyan boxes below are the calibration preview, not automatic detection yet.", "success");
       } catch (error) {
         console.error(error);
-        buildRigidRegions();
-        renderRegions();
-        updateCvStatus("OpenCV analysis failed — calibrated rigid grid shown instead.", "warning");
-        announce("OpenCV could not analyze this image. The manual calibration grid remains available.", "error");
+        updateCvStatus("OpenCV loaded, but the screenshot processing test failed.", "warning");
+        announce("OpenCV could not process this screenshot. Try choosing it again or use a PNG/JPEG copy.", "error");
       } finally {
-        [src, rgb, hsv, gray, lightMask, gradY, absGradY].forEach((mat) => {
+        [src, gray].forEach((mat) => {
           if (mat && typeof mat.delete === "function") mat.delete();
         });
         detectButton.disabled = false;
       }
-    }, 30);
+    }, 20);
   }
+
+  function autoDetectWithOpenCv() {
+    runOpenCvProofTest();
+  }
+
 
   function rebuildManualGrid() {
     if (!image.naturalWidth || !image.naturalHeight) return;
@@ -415,7 +335,7 @@
     renderRegions();
     cropPreviewPanel.hidden = true;
     selectedRegionId = "";
-    announce("Rebuilt the rigid labeled-strip grid from the calibration controls.", "success");
+    announce("Rebuilt the clean calibration grid from the calibration controls.", "success");
   }
 
   function updateCalibration() {
@@ -427,8 +347,7 @@
   function resetCalibration() {
     calibration = Object.assign({}, DEFAULTS);
     syncControls();
-    if (cvReady) autoDetectWithOpenCv();
-    else rebuildManualGrid();
+    rebuildManualGrid();
   }
 
   function isProbablyImage(file) {
@@ -444,9 +363,9 @@
     cropPreviewPanel.hidden = true;
     buildRigidRegions();
     renderRegions();
-    announce("Screenshot loaded. OpenCV will fit one constrained grid to the card-header edges.", "success");
-    if (cvReady) autoDetectWithOpenCv();
-    else updateCvStatus("OpenCV is still loading. The calibrated grid is shown for now.", "working");
+    announce("Screenshot loaded. The clean cyan grid is the calibration preview.", "success");
+    if (cvReady) runOpenCvProofTest();
+    else updateCvStatus("Screenshot loaded. Waiting for OpenCV to finish loading…", "working");
   }
 
   function loadWithFileReader(file) {
@@ -520,10 +439,8 @@
       item.className = "scan-crop-preview-item scan-crop-preview-button" + (region.valid ? "" : " scan-preview-invalid");
       item.dataset.regionId = region.id;
       item.appendChild(cropRegionToCanvas(region));
-      const caption = document.createElement("span");
-      caption.className = "scan-crop-preview-caption";
-      caption.textContent = region.id + (region.valid ? "" : " • review");
-      item.appendChild(caption);
+      item.setAttribute("aria-label", region.valid ? "Card strip preview" : "Card strip preview — review");
+      item.title = region.id + (region.valid ? "" : " • review");
       item.addEventListener("click", () => selectRegion(region.id, "overlay"));
       cropPreviewGrid.appendChild(item);
     });
@@ -537,8 +454,8 @@
     saveCalibration();
     const validCount = regions.filter((region) => region.valid).length;
     const scanData = {
-      version: 9,
-      detector: cvReady ? "opencv-global-grid" : "manual-rigid-grid",
+      version: 10,
+      detector: cvReady ? "opencv-proof-plus-manual-grid" : "manual-rigid-grid",
       calibration: Object.assign({}, calibration),
       imageName: selectedFile ? selectedFile.name : "board screenshot",
       imageType: selectedFile ? selectedFile.type : "image/*",
@@ -550,7 +467,7 @@
     };
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(scanData));
     setDialogOpen(false);
-    announce(`Saved ${validCount}/52 labeled strips for the recognition stage.`, validCount === 52 ? "success" : "");
+    announce(`Saved ${validCount}/52 internal card-strip regions for the recognition stage.`, validCount === 52 ? "success" : "");
   }
 
   if (!openButton || !dialog || !pictureInput) {
