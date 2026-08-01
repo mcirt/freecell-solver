@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>FreeCell Solver — Board Input</title>
-  <link rel="stylesheet" href="css/styles.css?v=6">
+  <link rel="stylesheet" href="css/styles.css?v=7">
 </head>
 <body class="input-page">
   <main class="input-shell">
@@ -87,7 +87,7 @@
       </div>
 
       <div id="scan-preview-panel" class="scan-preview-panel" hidden>
-        <p class="scan-help">Card-top detection preview. Cyan boxes are refined from the screenshot instead of being placed only on a fixed row grid.</p>
+        <p class="scan-help">Constrained card-region preview. Boxes follow one calibrated top and a uniform row step, with only a tiny local correction so they cannot jump to suit artwork or borders.</p>
         <div id="scan-stage" class="scan-stage">
           <img id="scan-image" alt="Selected FreeCell board">
           <div id="scan-crops" class="scan-crops" aria-label="Detected tableau card crop regions"></div>
@@ -99,7 +99,7 @@
             <label>Tableau top <output id="scan-top-value"></output><input id="scan-top" type="range" min="40" max="65" step="0.1"></label>
             <label>Left edge <output id="scan-left-value"></output><input id="scan-left" type="range" min="0" max="10" step="0.1"></label>
             <label>Column spacing <output id="scan-spacing-value"></output><input id="scan-spacing" type="range" min="10" max="14" step="0.05"></label>
-            <label>Expected row step <output id="scan-row-value"></output><input id="scan-row" type="range" min="2" max="6" step="0.05"></label>
+            <label>Row step <output id="scan-row-value"></output><input id="scan-row" type="range" min="2" max="6" step="0.05"></label>
             <label>Crop width <output id="scan-width-value"></output><input id="scan-width" type="range" min="4" max="11" step="0.1"></label>
             <label>Crop height <output id="scan-height-value"></output><input id="scan-height" type="range" min="1.5" max="5" step="0.1"></label>
           </div>
@@ -124,10 +124,10 @@
   </section>
 
   <script>
-    var require = { baseUrl: "js", urlArgs: "v=6" };
+    var require = { baseUrl: "js", urlArgs: "v=7" };
   </script>
-  <script src="js/input.js?v=6"></script>
-  <script src="js/scan.js?v=6"></script>
-  <script src="js/require.js?v=6" data-main="solver"></script>
+  <script src="js/input.js?v=7"></script>
+  <script src="js/scan.js?v=7"></script>
+  <script src="js/require.js?v=7" data-main="solver"></script>
 </body>
 </html>
