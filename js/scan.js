@@ -7,21 +7,48 @@
   const takePhotoButton = document.getElementById("take-board-photo");
   const choosePictureButton = document.getElementById("choose-board-picture");
   const chooseAnotherButton = document.getElementById("scan-choose-another");
-  const resetButton = document.getElementById("scan-reset-guides");
-  const useButton = document.getElementById("scan-use-image");
+  const resetButton = document.getElementById("scan-reset-calibration");
+  const confirmButton = document.getElementById("scan-confirm-crops");
   const cameraInput = document.getElementById("board-camera-input");
   const pictureInput = document.getElementById("board-picture-input");
   const pickerPanel = document.getElementById("scan-picker-panel");
   const previewPanel = document.getElementById("scan-preview-panel");
   const image = document.getElementById("scan-image");
-  const stage = document.getElementById("scan-stage");
-  const guidesEl = document.getElementById("scan-guides");
+  const cropsEl = document.getElementById("scan-crops");
+  const summaryEl = document.getElementById("scan-detection-summary");
   const message = document.getElementById("input-message");
 
+  const STORAGE_KEY = "freecellScanCalibrationV2";
+  const COLUMN_COUNTS = [7, 7, 7, 7, 6, 6, 6, 6];
+  const DEFAULTS = {
+    top: 34.5,
+    left: 0.75,
+    spacing: 12.45,
+    rowStep: 3.18,
+    cropWidth: 7.4,
+    cropHeight: 2.65
+  };
+
+  const inputs = {
+    top: document.getElementById("scan-top"),
+    left: document.getElementById("scan-left"),
+    spacing: document.getElementById("scan-spacing"),
+    rowStep: document.getElementById("scan-row"),
+    cropWidth: document.getElementById("scan-width"),
+    cropHeight: document.getElementById("scan-height")
+  };
+  const outputs = {
+    top: document.getElementById("scan-top-value"),
+    left: document.getElementById("scan-left-value"),
+    spacing: document.getElementById("scan-spacing-value"),
+    rowStep: document.getElementById("scan-row-value"),
+    cropWidth: document.getElementById("scan-width-value"),
+    cropHeight: document.getElementById("scan-height-value")
+  };
+
   let objectUrl = null;
-  let guidePositions = [];
-  let activeGuide = null;
   let selectedFile = null;
+  let calibration = loadCalibration();
 
   function announce(text, kind) {
     message.textContent = text;
@@ -39,64 +66,73 @@
     objectUrl = null;
   }
 
+  function loadCalibration() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+      return saved && typeof saved === "object" ? Object.assign({}, DEFAULTS, saved) : Object.assign({}, DEFAULTS);
+    } catch (_error) {
+      return Object.assign({}, DEFAULTS);
+    }
+  }
+
+  function saveCalibration() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(calibration));
+  }
+
   function showPicker() {
     clearObjectUrl();
     selectedFile = null;
     image.removeAttribute("src");
     pickerPanel.hidden = false;
     previewPanel.hidden = true;
-    guidesEl.replaceChildren();
+    cropsEl.replaceChildren();
     cameraInput.value = "";
     pictureInput.value = "";
   }
 
-  function closeDialog() {
-    setDialogOpen(false);
-  }
+  function closeDialog() { setDialogOpen(false); }
 
-  function defaultPositions() {
-    guidePositions = Array.from({ length: 8 }, (_, i) => ((i + 0.5) / 8) * 100);
-  }
-
-  function renderGuides() {
-    guidesEl.replaceChildren();
-    guidePositions.forEach((position, index) => {
-      const guide = document.createElement("button");
-      guide.type = "button";
-      guide.className = "scan-guide";
-      guide.style.left = position + "%";
-      guide.dataset.index = String(index);
-      guide.setAttribute("aria-label", "Column " + (index + 1) + " guide");
-      guide.innerHTML = "<span>" + (index + 1) + "</span>";
-      guide.addEventListener("pointerdown", startDrag);
-      guidesEl.appendChild(guide);
+  function syncControls() {
+    Object.keys(inputs).forEach((key) => {
+      inputs[key].value = String(calibration[key]);
+      outputs[key].textContent = Number(calibration[key]).toFixed(key === "spacing" || key === "rowStep" ? 2 : 1) + "%";
     });
   }
 
-  function clamp(value, min, max) {
-    return Math.max(min, Math.min(max, value));
+  function readControls() {
+    Object.keys(inputs).forEach((key) => { calibration[key] = Number(inputs[key].value); });
   }
 
-  function startDrag(event) {
-    activeGuide = Number(event.currentTarget.dataset.index);
-    event.currentTarget.setPointerCapture(event.pointerId);
-    event.currentTarget.addEventListener("pointermove", dragGuide);
-    event.currentTarget.addEventListener("pointerup", endDrag, { once: true });
-    event.currentTarget.addEventListener("pointercancel", endDrag, { once: true });
+  function renderCrops() {
+    cropsEl.replaceChildren();
+    let number = 1;
+    COLUMN_COUNTS.forEach((count, column) => {
+      for (let row = 0; row < count; row += 1) {
+        const crop = document.createElement("div");
+        crop.className = "scan-crop";
+        crop.style.left = (calibration.left + column * calibration.spacing) + "%";
+        crop.style.top = (calibration.top + row * calibration.rowStep) + "%";
+        crop.style.width = calibration.cropWidth + "%";
+        crop.style.height = calibration.cropHeight + "%";
+        crop.title = "Column " + (column + 1) + ", card " + (row + 1);
+        crop.innerHTML = "<span>" + number + "</span>";
+        cropsEl.appendChild(crop);
+        number += 1;
+      }
+    });
+    summaryEl.textContent = "52 expected card regions • 8 columns • screenshot " + image.naturalWidth + " × " + image.naturalHeight;
   }
 
-  function dragGuide(event) {
-    if (activeGuide === null) return;
-    const rect = stage.getBoundingClientRect();
-    const min = activeGuide === 0 ? 1 : guidePositions[activeGuide - 1] + 2;
-    const max = activeGuide === 7 ? 99 : guidePositions[activeGuide + 1] - 2;
-    guidePositions[activeGuide] = clamp(((event.clientX - rect.left) / rect.width) * 100, min, max);
-    event.currentTarget.style.left = guidePositions[activeGuide] + "%";
+  function updateCalibration() {
+    readControls();
+    syncControls();
+    renderCrops();
   }
 
-  function endDrag(event) {
-    event.currentTarget.removeEventListener("pointermove", dragGuide);
-    activeGuide = null;
+  function resetCalibration() {
+    calibration = Object.assign({}, DEFAULTS);
+    syncControls();
+    renderCrops();
   }
 
   function showImage(file) {
@@ -108,8 +144,8 @@
     selectedFile = file;
     objectUrl = URL.createObjectURL(file);
     image.onload = function () {
-      defaultPositions();
-      renderGuides();
+      syncControls();
+      renderCrops();
       pickerPanel.hidden = true;
       previewPanel.hidden = false;
     };
@@ -125,31 +161,33 @@
     if (file) showImage(file);
   }
 
-  function useImage() {
+  function confirmCrops() {
+    saveCalibration();
     const scanData = {
-      guidePositions: guidePositions.slice(),
+      calibration: Object.assign({}, calibration),
       imageName: selectedFile ? selectedFile.name : "board image",
       imageType: selectedFile ? selectedFile.type : "image/*",
+      imageWidth: image.naturalWidth,
+      imageHeight: image.naturalHeight,
+      cardRegions: 52,
       savedAt: new Date().toISOString()
     };
-    sessionStorage.setItem("freecellPendingScanV1", JSON.stringify(scanData));
+    sessionStorage.setItem("freecellPendingScanV2", JSON.stringify(scanData));
     closeDialog();
-    announce("Board image aligned. Card recognition will be added in the next scan stage.", "success");
+    announce("Crop calibration saved. The next scanner stage will read these 52 card regions.", "success");
   }
 
   openButton.addEventListener("click", () => setDialogOpen(true));
   closeButton.addEventListener("click", closeDialog);
-  dialog.querySelectorAll("[data-scan-cancel]").forEach(el => el.addEventListener("click", closeDialog));
+  dialog.querySelectorAll("[data-scan-cancel]").forEach((node) => node.addEventListener("click", closeDialog));
   takePhotoButton.addEventListener("click", () => cameraInput.click());
   choosePictureButton.addEventListener("click", () => pictureInput.click());
   chooseAnotherButton.addEventListener("click", showPicker);
-  resetButton.addEventListener("click", function () {
-    defaultPositions();
-    renderGuides();
-  });
-  useButton.addEventListener("click", useImage);
+  resetButton.addEventListener("click", resetCalibration);
+  confirmButton.addEventListener("click", confirmCrops);
   cameraInput.addEventListener("change", () => handleInput(cameraInput));
   pictureInput.addEventListener("change", () => handleInput(pictureInput));
+  Object.values(inputs).forEach((input) => input.addEventListener("input", updateCalibration));
   document.addEventListener("keydown", function (event) {
     if (event.key === "Escape" && !dialog.hidden) closeDialog();
   });
