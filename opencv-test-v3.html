@@ -10,10 +10,12 @@ function log(msg){
 }
 
 function ok(id,msg){
+    document.getElementById("log").textContent += "OK: "+msg+"\n";
     document.getElementById(id).textContent="✅ "+msg;
 }
 
 function bad(id,msg){
+    document.getElementById("log").textContent += "ERROR: "+msg+"\n";
     document.getElementById(id).textContent="❌ "+msg;
 }
 
@@ -35,10 +37,6 @@ window.addEventListener("load",()=>{
 
         ok("step2","window.cv exists");
 
-        //---------------------------------------------------
-        // THIS IS THE IMPORTANT PART
-        //---------------------------------------------------
-
         if(typeof window.cv.then==="function"){
 
             log("cv.then() detected.");
@@ -50,18 +48,15 @@ window.addEventListener("load",()=>{
                 try{
 
                     let m=new cv.Mat();
-
                     m.delete();
 
                     ok("step4","cv.Mat works");
-
                     log("SUCCESS");
 
                 }
                 catch(e){
 
                     bad("step4",e.message);
-
                     console.error(e);
                 }
 
@@ -88,45 +83,35 @@ window.addEventListener("load",()=>{
 </script>
 
 <style>
-
 body{
 background:#08214a;
 color:white;
-font-family:Arial;
+font-family:Arial,sans-serif;
 padding:30px;
 }
-
 .card{
-
 border:2px solid #3b8cff;
 border-radius:12px;
 padding:20px;
 margin-bottom:15px;
-
 }
-
 pre{
-
 background:black;
 padding:15px;
 color:#7cff7c;
-
+white-space:pre-wrap;
 }
-
 </style>
 
 </head>
 
 <body>
 
-<h1>OpenCV Test v3</h1>
+<h1>OpenCV Standalone Test v3</h1>
 
 <div id="step1" class="card">Loading script...</div>
-
 <div id="step2" class="card">Checking window.cv...</div>
-
 <div id="step3" class="card">Waiting for runtime...</div>
-
 <div id="step4" class="card">Testing cv.Mat...</div>
 
 <pre id="log"></pre>
