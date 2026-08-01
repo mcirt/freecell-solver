@@ -18,10 +18,10 @@
   const summaryEl = document.getElementById("scan-detection-summary");
   const message = document.getElementById("input-message");
 
-  const STORAGE_KEY = "freecellScanCalibrationV2";
+  const STORAGE_KEY = "freecellScanCalibrationV3";
   const COLUMN_COUNTS = [7, 7, 7, 7, 6, 6, 6, 6];
   const DEFAULTS = {
-    top: 34.5,
+    top: 55.0,
     left: 0.75,
     spacing: 12.45,
     rowStep: 3.18,
@@ -180,8 +180,10 @@
   openButton.addEventListener("click", () => setDialogOpen(true));
   closeButton.addEventListener("click", closeDialog);
   dialog.querySelectorAll("[data-scan-cancel]").forEach((node) => node.addEventListener("click", closeDialog));
-  takePhotoButton.addEventListener("click", () => cameraInput.click());
-  choosePictureButton.addEventListener("click", () => pictureInput.click());
+  // The source controls are labels tied directly to file inputs. This is more
+  // reliable on iPhone Safari than calling input.click() on a hidden input.
+  takePhotoButton.addEventListener("click", () => { cameraInput.value = ""; });
+  choosePictureButton.addEventListener("click", () => { pictureInput.value = ""; });
   chooseAnotherButton.addEventListener("click", showPicker);
   resetButton.addEventListener("click", resetCalibration);
   confirmButton.addEventListener("click", confirmCrops);
