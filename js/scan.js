@@ -258,29 +258,131 @@
     return { commonWidth, halfWidth, supports, supportMean, supportCV, minSupport };
   }
 
-  function findTableauTop(mask) {
-    const x0 = mask.cols * 0.015, x1 = mask.cols * 0.985;
-    const coverage = rowCoverage(mask, x0, x1);
-    const yMin = Math.round(mask.rows * 0.24);
-    const yMax = Math.round(mask.rows * 0.70);
-    const bandH = Math.max(5, Math.round(mask.rows * 0.012));
-    const candidates = [];
-    for (let y = yMin; y < yMax; y += 2) {
-      const now = mean(Array.from(coverage.slice(y, Math.min(coverage.length, y + bandH))));
-      const below = mean(Array.from(coverage.slice(y + bandH, Math.min(coverage.length, y + bandH * 5))));
-      const above = mean(Array.from(coverage.slice(Math.max(0, y - bandH * 2), y)));
-      const rise = now - above;
-      if (now < 0.28 || below < 0.20 || rise < 0.035) continue;
-      const profile = columnProfile(mask, y, Math.min(mask.rows - 1, y + bandH * 2));
-      const runs = findRuns(profile, 0.24, Math.max(6, Math.round(mask.cols * 0.035)), Math.max(2, Math.round(mask.cols * 0.009)));
-      const fit = chooseEightRuns(runs, mask.cols);
-      if (!fit) continue;
-      const score = fit.score + now * 1.6 + below * 1.1 + rise * 2.0 - (y - yMin) / Math.max(1, yMax - yMin) * 0.25;
-      candidates.push({ y, bandH, now, below, above, rise, fit, score });
+  function profilePrefix(profile) {
+    const prefix = new Float64Array(profile.length + 1);
+    for (let i = 0; i < profile.length; i += 1) prefix[i + 1] = prefix[i] + profile[i];
+    return prefix;
+  }
+
+  function profileMean(prefix, start, end) {
+    const a = Math.max(0, Math.min(prefix.length - 1, Math.round(start)));
+    const b = Math.max(a + 1, Math.min(prefix.length - 1, Math.round(end)));
+    return (prefix[b] - prefix[a]) / Math.max(1, b - a);
+  }
+
+  function fitEightLaneGrid(profile, cols) {
+    const prefix = profilePrefix(profile);
+    let best = null;
+    const minPitch = Math.max(18, Math.round(cols * 0.105));
+    const maxPitch = Math.max(minPitch + 1, Math.round(cols * 0.132));
+    const maxLeft = Math.round(cols * 0.075);
+
+    for (let pitch = minPitch; pitch <= maxPitch; pitch += 2) {
+      const laneWidth = pitch * 0.90;
+      const gapWidth = Math.max(2, pitch - laneWidth);
+      for (let left = 0; left <= maxLeft; left += 3) {
+        const right = left + 8 * pitch;
+        if (right > cols * 1.01 || right < cols * 0.82) continue;
+        const centers = Array.from({ length: 8 }, (_, i) => left + (i + 0.5) * pitch);
+        const laneSupports = centers.map((center) => profileMean(prefix, center - laneWidth / 2, center + laneWidth / 2));
+        const gapSupports = Array.from({ length: 7 }, (_, i) => {
+          const boundary = left + (i + 1) * pitch;
+          return profileMean(prefix, boundary - gapWidth * 0.75, boundary + gapWidth * 0.75);
+        });
+        const supportMean = mean(laneSupports);
+        const minSupport = Math.min(...laneSupports);
+        const supportCV = coefficientOfVariation(laneSupports);
+        const gapMean = mean(gapSupports);
+        const contrast = supportMean - gapMean;
+        const spanRatio = (8 * pitch) / cols;
+        const edgePenalty = Math.abs(left / cols - 0.018) + Math.abs((cols - right) / cols - 0.018);
+        const score = supportMean * 5.2 + minSupport * 1.6 + contrast * 3.2 - supportCV * 1.2 - edgePenalty * 2.0 - Math.abs(spanRatio - 0.94) * 1.8;
+        if (!best || score > best.score) {
+          const rawCenters = centers.map((center) => {
+            const x0 = Math.max(0, Math.round(center - pitch * 0.22));
+            const x1 = Math.min(cols - 1, Math.round(center + pitch * 0.22));
+            let weighted = 0, total = 0;
+            for (let x = x0; x <= x1; x += 1) { weighted += x * profile[x]; total += profile[x]; }
+            return total > 0 ? weighted / total : center;
+          });
+          const grid = fitRegularGrid(rawCenters);
+          best = {
+            group: centers.map((center) => ({ start: center - laneWidth / 2, end: center + laneWidth / 2, width: laneWidth })),
+            rawCenters,
+            centers: grid.centers,
+            widths: Array(8).fill(laneWidth),
+            gaps: Array(7).fill(grid.pitch),
+            spanRatio,
+            widthCV: 0,
+            gapCV: 0,
+            gridResidual: grid.rmse,
+            gridResidualRatio: grid.residualRatio,
+            pitch: grid.pitch || pitch,
+            score,
+            laneSupports,
+            supportMean,
+            supportCV,
+            minSupport,
+            gapMean,
+            contrast,
+            left,
+            right
+          };
+        }
+      }
     }
+    return best;
+  }
+
+  function findTableauTop(mask) {
+    const x0 = mask.cols * 0.01, x1 = mask.cols * 0.99;
+    const coverage = rowCoverage(mask, x0, x1);
+    const yMin = Math.round(mask.rows * 0.25);
+    const yMax = Math.round(mask.rows * 0.60);
+    const bandH = Math.max(8, Math.round(mask.rows * 0.020));
+    const candidates = [];
+
+    for (let y = yMin; y < yMax; y += 2) {
+      const topBandEnd = Math.min(mask.rows - 1, y + bandH);
+      const evidenceEnd = Math.min(mask.rows - 1, y + Math.round(mask.rows * 0.055));
+      const profile = columnProfile(mask, y, evidenceEnd);
+      const fit = fitEightLaneGrid(profile, mask.cols);
+      if (!fit) continue;
+
+      const now = mean(Array.from(coverage.slice(y, Math.min(coverage.length, topBandEnd))));
+      const below = mean(Array.from(coverage.slice(topBandEnd, Math.min(coverage.length, y + bandH * 4))));
+      const above = mean(Array.from(coverage.slice(Math.max(0, y - bandH), y)));
+      const rise = now - above;
+
+      // Aggregate support over a deeper band so a single highlighted or face card
+      // cannot destroy the first-row candidate. A true tableau top continues into
+      // several rows below; a bottom-card row does not.
+      const deepEnd = Math.min(mask.rows - 1, y + Math.round(mask.rows * 0.23));
+      const deepProfile = columnProfile(mask, y, deepEnd);
+      const deepPrefix = profilePrefix(deepProfile);
+      const laneWidth = fit.pitch * 0.88;
+      const deepSupports = fit.centers.map((center) => profileMean(deepPrefix, center - laneWidth / 2, center + laneWidth / 2));
+      const deepMean = mean(deepSupports);
+      const supportedLanes = fit.laneSupports.filter((value) => value >= 0.12).length;
+      const sharedTop = fit.supportMean;
+      const verticalPenalty = (y - yMin) / Math.max(1, yMax - yMin);
+
+      if (supportedLanes < 6 || sharedTop < 0.11 || deepMean < 0.16) continue;
+
+      const score = fit.score + sharedTop * 2.6 + deepMean * 3.4 + Math.max(0, rise) * 2.2 + below * 0.8 - verticalPenalty * 0.75;
+      candidates.push({
+        y, bandH, now, below, above, rise, fit, score,
+        deepMean, deepSupports, supportedLanes, sharedTop
+      });
+    }
+
     candidates.sort((a, b) => b.score - a.score);
     if (!candidates.length) return { best: null, candidates: [], coverage };
-    const nearBest = candidates.filter((c) => c.score >= candidates[0].score - 0.45);
+
+    // Favor the earliest candidate among results that are almost equally strong.
+    // This prevents a later, fully exposed bottom-card row from winning merely
+    // because it contains more uninterrupted white pixels.
+    const nearBest = candidates.filter((candidate) => candidate.score >= candidates[0].score - 0.65);
     nearBest.sort((a, b) => a.y - b.y);
     return { best: nearBest[0], candidates: candidates.slice(0, 15), coverage };
   }
@@ -447,7 +549,7 @@
     const stepHeight = bottomLeft - bottomRight;
     const rowEvidence = periodic.score / 7;
     const checks = {
-      paleTableauTop: c.now > 0.28 && c.rise > 0.035,
+      paleTableauTop: c.supportedLanes >= 6 && c.sharedTop > 0.11 && c.deepMean > 0.16,
       eightColumns: c.fit.group.length === 8,
       // A regular-grid fit plus consistent mask support is a better card-width
       // test than comparing raw connected white-run widths.
@@ -602,7 +704,7 @@
       if (debugPanel) debugPanel.hidden = false;
       renderDebugView();
       if (debugText) debugText.textContent = JSON.stringify({
-        selectedTop: Math.round(small.top), topCoverage: Number(small.topCandidate.now.toFixed(3)), topRise: Number(small.topCandidate.rise.toFixed(3)),
+        selectedTop: Math.round(small.top), topCoverage: Number(small.topCandidate.now.toFixed(3)), topRise: Number(small.topCandidate.rise.toFixed(3)), supportedTopLanes: small.topCandidate.supportedLanes, sharedTopSupport: Number(small.topCandidate.sharedTop.toFixed(3)), deepLaneSupport: Number(small.topCandidate.deepMean.toFixed(3)),
         topCandidateScore: Number(small.topCandidate.score.toFixed(3)), rawWidthCV: Number(small.topCandidate.fit.widthCV.toFixed(3)),
         spacingCV: Number(small.topCandidate.fit.gapCV.toFixed(3)), gridResidualPixels: Number(small.topCandidate.fit.gridResidual.toFixed(2)),
         gridResidualRatio: Number(small.topCandidate.fit.gridResidualRatio.toFixed(4)), fittedPitch: Number(small.topCandidate.fit.pitch.toFixed(2)),
