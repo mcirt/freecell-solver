@@ -88,8 +88,10 @@
         <p class="scan-help">OpenCV locates the pale tableau region first, then fits the known 7/7/7/7 + 6/6/6/6 FreeCell geometry inside it.</p>
         <div id="opencv-status" class="opencv-status" role="status">Loading OpenCV…</div>
         <div id="scan-stage" class="scan-stage">
-          <img id="scan-image" alt="Selected FreeCell board">
-          <div id="scan-crops" class="scan-crops" aria-label="Detected tableau card crop regions"></div>
+          <div id="scan-image-layer" class="scan-image-layer">
+            <img id="scan-image" alt="Selected FreeCell board">
+            <div id="scan-crops" class="scan-crops" aria-label="Detected tableau card crop regions"></div>
+          </div>
         </div>
 
         <details class="scan-calibration">
