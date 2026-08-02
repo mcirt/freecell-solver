@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>FreeCell Solver — Board Input</title>
-  <link rel="stylesheet" href="css/styles.css?v=16">
+  <link rel="stylesheet" href="css/styles.css?v=17">
 </head>
 <body class="input-page">
   <main class="input-shell">
@@ -87,7 +87,7 @@
       </div>
 
       <div id="scan-preview-panel" class="scan-preview-panel" hidden>
-        <p class="scan-help">Tableau-shape detection preview. OpenCV looks directly for the known stepped FreeCell tableau silhouette. The foundation and free-cell slots are not required.</p>
+        <p class="scan-help">Evidence-based tableau detection. OpenCV first finds eight evenly spaced first-card regions, then traces the card pixels downward. The upper slots are optional and are not used as the starting point.</p>
         <div id="opencv-status" class="opencv-status" role="status">Loading OpenCV…</div>
         <div id="scan-stage" class="scan-stage">
           <img id="scan-image" alt="Selected FreeCell board">
@@ -108,6 +108,23 @@
 
         <div class="scan-detection-summary" id="scan-detection-summary"></div>
         <div id="scan-column-counts" class="scan-column-counts" aria-live="polite"></div>
+
+        <section id="scan-debug-panel" class="scan-debug-panel" hidden aria-label="OpenCV debug view">
+          <div class="scan-debug-header">
+            <h3>OpenCV Debug View</h3>
+            <label>Show
+              <select id="scan-debug-view">
+                <option value="original">Normalized image</option>
+                <option value="mask">Card-surface mask</option>
+                <option value="candidates" selected>First-row candidates and lanes</option>
+              </select>
+            </label>
+          </div>
+          <canvas id="scan-debug-canvas"></canvas>
+          <details><summary>Detection measurements</summary><pre id="scan-debug-text"></pre></details>
+          <p class="scan-debug-note">The mask should show the pale card surfaces. The candidate view should mark eight similarly spaced card tops at the first tableau row—not the upper slots.</p>
+        </section>
+
         <div class="scan-actions">
           <button id="scan-choose-another" class="scan-secondary" type="button">Choose Another</button>
           <button id="scan-reset-calibration" class="scan-secondary" type="button">Reset Calibration</button>
@@ -117,7 +134,7 @@
         </div>
         <section id="scan-crop-preview-panel" class="scan-crop-preview-panel" hidden aria-label="Tableau detection details">
           <h3>Tableau shape details</h3>
-          <p>The detected outline is scored against the known 7/7/7/7 + 6/6/6/6 FreeCell silhouette. The program retains normalized coordinates for later card-strip detection.</p>
+          <p>The outline is built from eight detected first-card regions, measured column bottoms, and card-pixel overlap. Use the Debug View to inspect the mask and candidate evidence when alignment is wrong.</p>
           <div id="scan-crop-preview-grid" class="scan-crop-preview-grid"></div>
         </section>
       </div>
@@ -125,13 +142,13 @@
   </section>
 
   <!-- Load OpenCV before RequireJS so the UMD build creates window.cv instead of registering as AMD. -->
-  <script src="js/opencv.js?v=16"></script>
-  <script src="js/opencv-loader.js?v=16"></script>
-  <script src="js/input.js?v=16"></script>
-  <script src="js/scan.js?v=16"></script>
+  <script src="js/opencv.js?v=17"></script>
+  <script src="js/opencv-loader.js?v=17"></script>
+  <script src="js/input.js?v=17"></script>
+  <script src="js/scan.js?v=17"></script>
   <script>
-    var require = { baseUrl: "js", urlArgs: "v=16" };
+    var require = { baseUrl: "js", urlArgs: "v=17" };
   </script>
-  <script src="js/require.js?v=16" data-main="solver"></script>
+  <script src="js/require.js?v=17" data-main="solver"></script>
 </body>
 </html>
