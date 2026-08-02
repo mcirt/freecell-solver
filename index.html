@@ -116,15 +116,15 @@
               <select id="scan-debug-view">
                 <option value="original">Normalized image</option>
                 <option value="mask">Strict card-surface mask</option>
-                <option value="profile">Tableau top and row-profile evidence</option>
-                <option value="bottoms">Full-card bottom evidence</option>
-                <option value="geometry" selected>Final geometry and card rows</option>
+                <option value="template">Canonical tableau template</option>
+                <option value="match">Best template overlay</option>
+                <option value="geometry" selected>52 generated card regions</option>
               </select>
             </label>
           </div>
           <canvas id="scan-debug-canvas"></canvas>
           <details><summary>Detection measurements</summary><pre id="scan-debug-text"></pre></details>
-          <p class="scan-debug-note">The strict mask should mostly contain pale card surfaces. The profile view shows the tableau top and exposed-row spacing. The bottom-evidence view shows each final card top and measured physical bottom. The geometry view combines the exposed-row step with the separately measured full-card height.</p>
+          <p class="scan-debug-note">The strict mask should isolate the pale tableau. The canonical-template view shows the fixed 7/7/7/7 + 6/6/6/6 silhouette. The best-match view shows where the template was fitted. The 52-region view shows every internally labeled rank-and-suit crop generated from that one fit.</p>
         </div></details>
 
         <div class="scan-actions">
@@ -136,7 +136,7 @@
         </div>
         <section id="scan-crop-preview-panel" class="scan-crop-preview-panel" hidden aria-label="Tableau detection details">
           <h3>Tableau shape details</h3>
-          <p>The outline is fitted from the detected tableau top, exposed-card row spacing, and the separately measured full height of the final card in each column. Debug measurements remain available when alignment needs adjustment.</p>
+          <p>The scanner fits one fixed tableau template to the strict card-surface mask. Position and scale are detected once; all 52 labeled card regions are then generated from the fitted template.</p>
           <div id="scan-crop-preview-grid" class="scan-crop-preview-grid"></div>
         </section>
       </div>
