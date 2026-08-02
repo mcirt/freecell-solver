@@ -187,23 +187,75 @@
     return merged;
   }
 
+  function fitRegularGrid(rawCenters) {
+    const n = rawCenters.length;
+    const meanIndex = (n - 1) / 2;
+    const meanCenter = mean(rawCenters);
+    let numerator = 0;
+    let denominator = 0;
+    for (let i = 0; i < n; i += 1) {
+      numerator += (i - meanIndex) * (rawCenters[i] - meanCenter);
+      denominator += (i - meanIndex) * (i - meanIndex);
+    }
+    const pitch = denominator ? numerator / denominator : 0;
+    const firstCenter = meanCenter - pitch * meanIndex;
+    const centers = Array.from({ length: n }, (_, i) => firstCenter + i * pitch);
+    const residuals = rawCenters.map((center, i) => center - centers[i]);
+    const rmse = Math.sqrt(mean(residuals.map((value) => value * value)));
+    return { centers, pitch, firstCenter, residuals, rmse, residualRatio: pitch ? rmse / pitch : 1 };
+  }
+
   function chooseEightRuns(runs, cols) {
     let best = null;
     for (let s = 0; s <= runs.length - 8; s += 1) {
       const group = runs.slice(s, s + 8);
       const widths = group.map((r) => r.width);
-      const centers = group.map((r) => (r.start + r.end) / 2);
-      const gaps = centers.slice(1).map((c, i) => c - centers[i]);
+      const rawCenters = group.map((r) => (r.start + r.end) / 2);
+      const gaps = rawCenters.slice(1).map((c, i) => c - rawCenters[i]);
+      const grid = fitRegularGrid(rawCenters);
       const span = group[7].end - group[0].start + 1;
       const spanRatio = span / cols;
       const widthCV = coefficientOfVariation(widths);
       const gapCV = coefficientOfVariation(gaps);
       if (spanRatio < 0.72 || spanRatio > 1.0) continue;
       if (mean(widths) < cols * 0.055 || mean(widths) > cols * 0.15) continue;
-      const score = 4.5 - widthCV * 10 - gapCV * 12 - Math.abs(spanRatio - 0.91) * 3;
-      if (!best || score > best.score) best = { group, centers, widths, gaps, spanRatio, widthCV, gapCV, score };
+      if (grid.pitch <= 0) continue;
+      // Prefer an evenly spaced eight-lane grid. Raw white-run widths are only
+      // a weak clue because ranks, suits, highlights, and borders fragment them.
+      const score = 5.0 - grid.residualRatio * 24 - gapCV * 8 - widthCV * 2.5 - Math.abs(spanRatio - 0.91) * 3;
+      if (!best || score > best.score) best = {
+        group, rawCenters, centers: grid.centers, widths, gaps, spanRatio,
+        widthCV, gapCV, gridResidual: grid.rmse, gridResidualRatio: grid.residualRatio,
+        pitch: grid.pitch, score
+      };
     }
     return best;
+  }
+
+
+  function regularLaneSupport(mask, centers, pitch, top, bandHeight) {
+    const commonWidth = Math.max(6, Math.min(pitch * 0.96, median(centers.slice(1).map((c, i) => c - centers[i])) * 0.96));
+    const halfWidth = commonWidth * 0.46;
+    const y0 = Math.max(0, Math.round(top));
+    const y1 = Math.min(mask.rows - 1, Math.round(top + bandHeight));
+    const supports = centers.map((center) => {
+      const x0 = Math.max(0, Math.round(center - halfWidth));
+      const x1 = Math.min(mask.cols - 1, Math.round(center + halfWidth));
+      let on = 0;
+      let total = 0;
+      for (let y = y0; y <= y1; y += 1) {
+        const row = mask.ucharPtr(y);
+        for (let x = x0; x <= x1; x += 1) {
+          if (row[x]) on += 1;
+          total += 1;
+        }
+      }
+      return on / Math.max(1, total);
+    });
+    const supportMean = mean(supports);
+    const supportCV = coefficientOfVariation(supports);
+    const minSupport = Math.min(...supports);
+    return { commonWidth, halfWidth, supports, supportMean, supportCV, minSupport };
   }
 
   function findTableauTop(mask) {
@@ -372,10 +424,11 @@
     const c = topResult.best;
     if (!c) throw new Error("No pale eight-column tableau top was found.");
     const centers = c.fit.centers;
-    const spacing = median(c.fit.gaps);
+    const spacing = c.fit.pitch || median(c.fit.gaps);
     const left = Math.max(0, Math.round(centers[0] - spacing / 2));
     const right = Math.min(mask.cols - 1, Math.round(centers[7] + spacing / 2));
     const top = c.y;
+    const laneSupport = regularLaneSupport(mask, centers, spacing, top, Math.max(c.bandH * 3, mask.rows * 0.035));
     const edgeProfile = horizontalEdgeProfile(gray, centers, spacing, top, Math.min(mask.rows - 1, top + mask.rows * 0.42));
     const periodic = findPeriodicPeaks(edgeProfile, top, Math.min(mask.rows - 1, top + mask.rows * 0.38), Math.round(mask.rows * 0.026), Math.round(mask.rows * 0.065));
     let rowStep = periodic.step;
@@ -396,8 +449,10 @@
     const checks = {
       paleTableauTop: c.now > 0.28 && c.rise > 0.035,
       eightColumns: c.fit.group.length === 8,
-      widthConsistency: c.fit.widthCV < 0.23,
-      spacingConsistency: c.fit.gapCV < 0.16,
+      // A regular-grid fit plus consistent mask support is a better card-width
+      // test than comparing raw connected white-run widths.
+      widthConsistency: c.fit.gridResidualRatio < 0.085 && laneSupport.supportCV < 0.32 && laneSupport.minSupport > 0.16,
+      spacingConsistency: c.fit.gapCV < 0.16 && c.fit.gridResidualRatio < 0.085,
       boardSpan: c.fit.spanRatio > 0.73,
       repeatedRows: rowEvidence > 0.52,
       cardPixelSupport: cardSupport > 0.18,
@@ -415,7 +470,7 @@
     return {
       left, right, top, bottomLeft, bottomRight, stepX, centers, spacing, rowStep,
       cardHeight, stepHeight, points, cardRows, checks, passCount, cardSupport,
-      rowEvidence, topCandidate: c, periodic, edgeProfile, bottomEvidence
+      rowEvidence, topCandidate: c, periodic, edgeProfile, bottomEvidence, laneSupport
     };
   }
 
@@ -494,7 +549,7 @@
     summaryEl.textContent = `${result.passCount}/8 hierarchy checks passed • image ${image.naturalWidth} × ${image.naturalHeight} • overlay ${mappingOk ? "mapped" : "review"}`;
     checksEl.replaceChildren();
     const labels = {
-      paleTableauTop: "Pale tableau top", eightColumns: "Eight column lanes", widthConsistency: "Card-width consistency",
+      paleTableauTop: "Pale tableau top", eightColumns: "Eight column lanes", widthConsistency: "Regular-grid lane support",
       spacingConsistency: "Column-spacing consistency", boardSpan: "Tableau spans board", repeatedRows: "Repeated card-row edges",
       cardPixelSupport: "Card-surface support", fullCardBottoms: "Full-card bottom evidence"
     };
@@ -548,8 +603,12 @@
       renderDebugView();
       if (debugText) debugText.textContent = JSON.stringify({
         selectedTop: Math.round(small.top), topCoverage: Number(small.topCandidate.now.toFixed(3)), topRise: Number(small.topCandidate.rise.toFixed(3)),
-        topCandidateScore: Number(small.topCandidate.score.toFixed(3)), widthCV: Number(small.topCandidate.fit.widthCV.toFixed(3)),
-        spacingCV: Number(small.topCandidate.fit.gapCV.toFixed(3)), rowStep: Math.round(small.rowStep), rowEvidence: Number(small.rowEvidence.toFixed(3)),
+        topCandidateScore: Number(small.topCandidate.score.toFixed(3)), rawWidthCV: Number(small.topCandidate.fit.widthCV.toFixed(3)),
+        spacingCV: Number(small.topCandidate.fit.gapCV.toFixed(3)), gridResidualPixels: Number(small.topCandidate.fit.gridResidual.toFixed(2)),
+        gridResidualRatio: Number(small.topCandidate.fit.gridResidualRatio.toFixed(4)), fittedPitch: Number(small.topCandidate.fit.pitch.toFixed(2)),
+        laneSupportMean: Number(small.laneSupport.supportMean.toFixed(3)), laneSupportCV: Number(small.laneSupport.supportCV.toFixed(3)),
+        laneSupportMinimum: Number(small.laneSupport.minSupport.toFixed(3)), laneSupports: small.laneSupport.supports.map((v) => Number(v.toFixed(3))),
+        rowStep: Math.round(small.rowStep), rowEvidence: Number(small.rowEvidence.toFixed(3)),
         rowStep: Math.round(small.rowStep), fullCardHeight: Math.round(small.cardHeight), bottomEvidenceValid: small.bottomEvidence.validCount, bottomEvidenceConfidence: Number(small.bottomEvidence.confidence.toFixed(3)), laneBottoms: small.bottomEvidence.laneResults.map((r) => ({ column: r.columnIndex + 1, valid: r.valid, lastTop: Math.round(r.lastTop), bottom: Math.round(r.bottom), score: Number(r.score.toFixed(3)) })), cardSupport: Number(small.cardSupport.toFixed(3)), stepHeight: Math.round(small.stepHeight), passes: small.passCount
       }, null, 2);
       const perfect = detection.passCount === 8;
