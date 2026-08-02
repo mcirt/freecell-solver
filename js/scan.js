@@ -26,7 +26,7 @@
   const debugCanvas = byId("scan-debug-canvas");
   const debugText = byId("scan-debug-text");
 
-  const SESSION_KEY = "freecellPendingScanV18";
+  const SESSION_KEY = "freecellPendingScanV19";
   let selectedFile = null;
   let objectUrl = null;
   let sourceCanvas = null;
@@ -385,7 +385,10 @@
     }
     overlay.appendChild(svg);
 
-    summaryEl.textContent = `${result.passCount}/8 hierarchy checks passed • image ${image.naturalWidth} × ${image.naturalHeight}`;
+    // The SVG and image now share the same positioned wrapper. This keeps the
+    // overlay mapped to the complete image even when the outer stage scrolls.
+    const mappingOk = overlay.offsetWidth === image.offsetWidth && overlay.offsetHeight === image.offsetHeight;
+    summaryEl.textContent = `${result.passCount}/8 hierarchy checks passed • image ${image.naturalWidth} × ${image.naturalHeight} • overlay ${mappingOk ? "mapped" : "review"}`;
     checksEl.replaceChildren();
     const labels = {
       paleTableauTop: "Pale tableau top", eightColumns: "Eight column lanes", widthConsistency: "Card-width consistency",
@@ -472,7 +475,7 @@
 
   function confirmShape() {
     if (!detection || detection.passCount < 8) return;
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ version: 18, detector: "opencv-hierarchical-tableau", imageName: selectedFile ? selectedFile.name : "board image", imageWidth: image.naturalWidth, imageHeight: image.naturalHeight, silhouette: detection, savedAt: new Date().toISOString() }));
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ version: 19, detector: "opencv-hierarchical-tableau-coordinate-fixed", imageName: selectedFile ? selectedFile.name : "board image", imageWidth: image.naturalWidth, imageHeight: image.naturalHeight, silhouette: detection, savedAt: new Date().toISOString() }));
     setDialogOpen(false); announce("Tableau geometry saved for the card-strip stage.", "success");
   }
 
@@ -492,5 +495,6 @@
   chooseAnotherButton.addEventListener("click", showPicker); resetButton.addEventListener("click", clearDetection);
   detectButton.addEventListener("click", detectTableauShape); detailsButton.addEventListener("click", showDetails); confirmButton.addEventListener("click", confirmShape);
   if (debugSelect) debugSelect.addEventListener("change", renderDebugView);
+  window.addEventListener("resize", () => { if (detection) drawDetection(detection); });
   window.addEventListener("beforeunload", cleanUrl);
 }());
