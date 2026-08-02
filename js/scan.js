@@ -23,7 +23,7 @@
   const message = byId("input-message");
 
   const STORAGE_KEY = "freecellScanCalibrationV10";
-  const SESSION_KEY = "freecellPendingScanV14";
+  const SESSION_KEY = "freecellPendingScanV15";
   const COLUMN_COUNTS = [7, 7, 7, 7, 6, 6, 6, 6];
 
   const DEFAULTS = {
@@ -233,7 +233,9 @@
       ["Detected count", valid === 8, `${valid}/8`],
       ["Width consistency", columnLanes.every((l) => l.widthConsistent), columnLanes.length ? "checked" : "waiting"],
       ["Spacing consistency", columnLanes.every((l) => l.spacingConsistent), columnLanes.length ? "checked" : "waiting"],
-      ["Left-to-right order", columnLanes.every((l, i) => i === 0 || l.x > columnLanes[i - 1].x), columnLanes.length ? "checked" : "waiting"]
+      ["Left-to-right order", columnLanes.every((l, i) => i === 0 || l.x > columnLanes[i - 1].x), columnLanes.length ? "checked" : "waiting"],
+      ["Tableau below slot row", columnLanes.every((l) => l.topBelowSlots), columnLanes.length ? "checked" : "waiting"],
+      ["7/7/7/7 + 6/6/6/6 shape", columnLanes.every((l) => l.shapeConsistent), columnLanes.length ? "checked" : "waiting"]
     ];
     checks.forEach(([label, pass, value]) => {
       const item = document.createElement("span");
@@ -321,34 +323,36 @@
 
   function detectEightColumns(cv, src) {
     const gray = new cv.Mat();
-    const mask = new cv.Mat();
+    const lightMask = new cv.Mat();
     try {
       cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-      cv.threshold(gray, mask, 145, 255, cv.THRESH_BINARY);
+      cv.threshold(gray, lightMask, 142, 255, cv.THRESH_BINARY);
 
-      const width = mask.cols;
-      const height = mask.rows;
-      const yStart = Math.round(height * 0.31);
-      const yEnd = Math.round(height * 0.69);
+      const width = lightMask.cols;
+      const height = lightMask.rows;
+
+      // The screenshot layout is static. First estimate the eight horizontal
+      // column centers from the actual white tableau card area only.
       const xScores = new Float64Array(width);
-
+      const scoreTop = Math.round(height * 0.49);
+      const scoreBottom = Math.round(height * 0.70);
       for (let x = 0; x < width; x += 2) {
         let white = 0;
         let samples = 0;
-        for (let y = yStart; y < yEnd; y += 3) {
-          white += mask.ucharPtr(y, x)[0] > 0 ? 1 : 0;
+        for (let y = scoreTop; y < scoreBottom; y += 3) {
+          white += lightMask.ucharPtr(y, x)[0] > 0 ? 1 : 0;
           samples += 1;
         }
-        const score = samples ? white / samples : 0;
-        xScores[x] = score * score;
+        const ratio = samples ? white / samples : 0;
+        xScores[x] = ratio * ratio;
         if (x + 1 < width) xScores[x + 1] = xScores[x];
       }
 
-      let minX = 0;
-      let maxX = width - 1;
-      while (minX < maxX && xScores[minX] < 0.012) minX += 1;
-      while (maxX > minX && xScores[maxX] < 0.012) maxX -= 1;
-      if (maxX - minX < width * 0.65) {
+      let minX = Math.round(width * 0.01);
+      let maxX = Math.round(width * 0.99);
+      while (minX < maxX && xScores[minX] < 0.01) minX += 1;
+      while (maxX > minX && xScores[maxX] < 0.01) maxX -= 1;
+      if (maxX - minX < width * 0.72) {
         minX = Math.round(width * 0.01);
         maxX = Math.round(width * 0.99);
       }
@@ -358,70 +362,131 @@
       const avgSpacing = spacings.reduce((a, b) => a + b, 0) / Math.max(1, spacings.length);
       const laneWidthPx = Math.max(10, avgSpacing * 0.88);
 
-      // Find the shared first tableau-card row using bright-pixel coverage near the 8 centers.
-      let topY = Math.round(height * 0.32);
-      let bestTopScore = -1;
-      for (let y = Math.round(height * 0.30); y < Math.round(height * 0.48); y += 1) {
+      function laneWhiteRatio(y, center, widthScale) {
+        const half = laneWidthPx * widthScale * 0.5;
+        const x0 = Math.max(0, Math.round(center - half));
+        const x1 = Math.min(width - 1, Math.round(center + half));
+        let white = 0;
+        let n = 0;
+        for (let x = x0; x <= x1; x += 3) {
+          white += lightMask.ucharPtr(y, x)[0] > 0 ? 1 : 0;
+          n += 1;
+        }
+        return n ? white / n : 0;
+      }
+
+      function averageLaneWhite(y, widthScale) {
         let total = 0;
-        centers.forEach((center) => {
-          const x0 = Math.max(0, Math.round(center - laneWidthPx * 0.42));
-          const x1 = Math.min(width - 1, Math.round(center + laneWidthPx * 0.42));
-          let rowWhite = 0;
-          let n = 0;
-          for (let x = x0; x <= x1; x += 3) {
-            rowWhite += mask.ucharPtr(y, x)[0] > 0 ? 1 : 0;
-            n += 1;
-          }
-          total += n ? rowWhite / n : 0;
-        });
-        const nextY = Math.min(height - 1, y + 2);
-        let nextTotal = 0;
-        centers.forEach((center) => {
-          const x0 = Math.max(0, Math.round(center - laneWidthPx * 0.42));
-          const x1 = Math.min(width - 1, Math.round(center + laneWidthPx * 0.42));
-          let rowWhite = 0;
-          let n = 0;
-          for (let x = x0; x <= x1; x += 3) {
-            rowWhite += mask.ucharPtr(nextY, x)[0] > 0 ? 1 : 0;
-            n += 1;
-          }
-          nextTotal += n ? rowWhite / n : 0;
-        });
-        const transition = nextTotal - total;
-        if (transition > bestTopScore) { bestTopScore = transition; topY = nextY; }
+        centers.forEach((center) => { total += laneWhiteRatio(y, center, widthScale); });
+        return total / centers.length;
       }
 
-      let bottomY = Math.round(height * 0.70);
-      for (let y = Math.round(height * 0.72); y > topY; y -= 1) {
-        let active = 0;
+      // Detect the lower edge of the fixed foundation/free-cell slot row.
+      // The slot row is mostly dark/colored; the tableau immediately below it
+      // changes to a broad band of light card pixels across all eight lanes.
+      let slotBottomY = Math.round(height * 0.48);
+      let tableauTopY = -1;
+      const searchStart = Math.round(height * 0.42);
+      const searchEnd = Math.round(height * 0.61);
+      const requiredConsecutive = Math.max(3, Math.round(height * 0.0025));
+      let run = 0;
+      for (let y = searchStart; y < searchEnd; y += 1) {
+        let brightLanes = 0;
         centers.forEach((center) => {
-          const x = Math.max(0, Math.min(width - 1, Math.round(center)));
-          if (mask.ucharPtr(y, x)[0] > 0) active += 1;
+          if (laneWhiteRatio(y, center, 0.78) >= 0.52) brightLanes += 1;
         });
-        if (active >= 2) { bottomY = y; break; }
+        const broadWhite = averageLaneWhite(y, 0.78);
+        if (brightLanes >= 7 && broadWhite >= 0.53) {
+          run += 1;
+          if (run >= requiredConsecutive) {
+            tableauTopY = y - run + 1;
+            break;
+          }
+        } else {
+          run = 0;
+          slotBottomY = y;
+        }
       }
-      bottomY = Math.max(bottomY, Math.round(height * 0.62));
 
-      const widthDeviation = Math.max(...spacings.map((s) => Math.abs(s - avgSpacing) / avgSpacing), 0);
-      const spacingPass = widthDeviation < 0.12;
+      // Safe fallback is still anchored below the known slot row, never over it.
+      if (tableauTopY < 0) {
+        let bestY = Math.round(height * 0.52);
+        let bestScore = -Infinity;
+        for (let y = Math.round(height * 0.47); y < Math.round(height * 0.61); y += 1) {
+          const before = averageLaneWhite(Math.max(0, y - 3), 0.78);
+          const after = averageLaneWhite(Math.min(height - 1, y + 3), 0.78);
+          const score = (after - before) + after * 0.6;
+          if (score > bestScore) { bestScore = score; bestY = y; }
+        }
+        tableauTopY = bestY;
+        slotBottomY = Math.min(slotBottomY, tableauTopY - 1);
+      }
+
+      // Use the fixed FreeCell deal shape as a consistency check. The first
+      // four columns contain seven cards; the final four contain six. We still
+      // detect each visible bottom from the image instead of hard-coding it.
+      const bottoms = centers.map((center, column) => {
+        let lastBrightY = tableauTopY;
+        let seenCard = false;
+        let darkRun = 0;
+        const minExpected = Math.round(height * (column < 4 ? 0.66 : 0.61));
+        const maxSearch = Math.round(height * 0.83);
+        for (let y = tableauTopY; y < maxSearch; y += 1) {
+          const ratio = laneWhiteRatio(y, center, 0.82);
+          if (ratio >= 0.34) {
+            seenCard = true;
+            lastBrightY = y;
+            darkRun = 0;
+          } else if (seenCard) {
+            darkRun += 1;
+            // Ignore brief dark artwork inside the final card. Only stop after
+            // a sustained background run and after the expected deal depth.
+            if (y > minExpected && darkRun > Math.max(12, Math.round(height * 0.007))) break;
+          }
+        }
+        return Math.max(lastBrightY + 2, minExpected);
+      });
+
+      const spacingDeviation = Math.max(...spacings.map((s) => Math.abs(s - avgSpacing) / avgSpacing), 0);
+      const spacingPass = spacingDeviation < 0.12;
+      const topBelowSlots = tableauTopY > slotBottomY;
+      const avgTallBottom = bottoms.slice(0, 4).reduce((a, b) => a + b, 0) / 4;
+      const avgShortBottom = bottoms.slice(4).reduce((a, b) => a + b, 0) / 4;
+      const shapePass = avgTallBottom > avgShortBottom + height * 0.02;
+
       const lanes = centers.map((center, column) => {
-        const score = xScores[Math.max(0, Math.min(width - 1, Math.round(center)))] || 0;
+        const xScore = xScores[Math.max(0, Math.min(width - 1, Math.round(center)))] || 0;
+        const bottomY = bottoms[column];
         return {
           column,
           x: Math.max(0, center - laneWidthPx / 2) / width,
-          y: topY / height,
+          y: tableauTopY / height,
           width: Math.min(laneWidthPx, width) / width,
-          height: Math.max(1, bottomY - topY) / height,
-          confidence: Math.max(0, Math.min(1, Math.sqrt(score) * 1.7)),
-          valid: score > 0.018,
+          height: Math.max(1, bottomY - tableauTopY) / height,
+          confidence: Math.max(0, Math.min(1, Math.sqrt(xScore) * 1.7)),
+          valid: xScore > 0.018 && topBelowSlots,
           widthConsistent: true,
-          spacingConsistent: spacingPass
+          spacingConsistent: spacingPass,
+          slotBottom: slotBottomY / height,
+          tableauTop: tableauTopY / height,
+          bottom: bottomY / height,
+          topBelowSlots,
+          shapeConsistent: shapePass
         };
       });
-      return { lanes, grayCols: gray.cols, grayRows: gray.rows };
+
+      return {
+        lanes,
+        grayCols: gray.cols,
+        grayRows: gray.rows,
+        slotBottomY,
+        tableauTopY,
+        spacingPass,
+        shapePass
+      };
     } finally {
       gray.delete();
-      mask.delete();
+      lightMask.delete();
     }
   }
 
@@ -452,7 +517,9 @@
         detectionMode = "opencv-columns";
         renderColumnLanes();
         const valid = columnLanes.filter((lane) => lane.valid).length;
-        updateCvStatus(`OpenCV detected ${valid}/8 tableau columns in ${result.grayCols} × ${result.grayRows} pixels.`, valid === 8 ? "ready" : "warning");
+        const topPct = (result.tableauTopY / result.grayRows * 100).toFixed(1);
+        const slotPct = (result.slotBottomY / result.grayRows * 100).toFixed(1);
+        updateCvStatus(`OpenCV aligned the fixed board template: ${valid}/8 columns • slot bottom ${slotPct}% • tableau top ${topPct}%.`, valid === 8 && result.shapePass ? "ready" : "warning");
         announce(valid === 8 ? "Eight column lanes detected. Check that each cyan lane covers exactly one tableau column." : "Column detection needs adjustment. Open Adjust calibration or choose another screenshot.", valid === 8 ? "success" : "error");
       } catch (error) {
         console.error(error);
@@ -614,7 +681,7 @@
     saveCalibration();
     const validCount = columnLanes.filter((lane) => lane.valid).length;
     const scanData = {
-      version: 14,
+      version: 15,
       detector: detectionMode,
       calibration: Object.assign({}, calibration),
       imageName: selectedFile ? selectedFile.name : "board screenshot",
