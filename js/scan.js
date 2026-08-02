@@ -285,6 +285,89 @@
     return on / Math.max(1, total);
   }
 
+
+
+  function laneRowCoverage(mask, center, halfWidth, startY, endY) {
+    const values = new Float32Array(mask.rows);
+    const x0 = Math.max(0, Math.round(center - halfWidth));
+    const x1 = Math.min(mask.cols - 1, Math.round(center + halfWidth));
+    const width = Math.max(1, x1 - x0 + 1);
+    for (let y = Math.max(0, startY); y <= Math.min(mask.rows - 1, endY); y += 1) {
+      const row = mask.ucharPtr(y);
+      let on = 0;
+      for (let x = x0; x <= x1; x += 1) if (row[x]) on += 1;
+      values[y] = on / width;
+    }
+    return movingAverage(values, Math.max(2, Math.round(mask.rows * 0.0016)));
+  }
+
+  function estimateFullCardHeight(mask, centers, spacing, top, rowStep) {
+    const cardWidth = spacing * 0.90;
+    const fallbackHeight = cardWidth * 1.45;
+    const halfWidth = Math.max(4, Math.round(cardWidth * 0.39));
+    const laneResults = [];
+
+    centers.forEach((center, columnIndex) => {
+      const cardCount = columnIndex < 4 ? 7 : 6;
+      const lastTop = top + (cardCount - 1) * rowStep;
+      const searchStart = Math.round(lastTop + cardWidth * 0.62);
+      const searchEnd = Math.min(mask.rows - 2, Math.round(lastTop + cardWidth * 1.78));
+      const coverage = laneRowCoverage(mask, center, halfWidth, lastTop, searchEnd);
+      const window = Math.max(3, Math.round(cardWidth * 0.055));
+      let bestY = 0;
+      let bestScore = -Infinity;
+      let bestBefore = 0;
+      let bestAfter = 0;
+
+      for (let y = searchStart; y <= searchEnd - window - 1; y += 1) {
+        let before = 0, after = 0;
+        for (let k = 0; k < window; k += 1) {
+          before += coverage[Math.max(lastTop, y - k)];
+          after += coverage[Math.min(mask.rows - 1, y + 1 + k)];
+        }
+        before /= window;
+        after /= window;
+        const height = y - lastTop;
+        const plausible = height >= cardWidth * 1.08 && height <= cardWidth * 1.72;
+        const score = (before - after) + before * 0.18 - after * 0.08 + (plausible ? 0.10 : -0.25);
+        if (score > bestScore) {
+          bestScore = score;
+          bestY = y;
+          bestBefore = before;
+          bestAfter = after;
+        }
+      }
+
+      const measuredHeight = bestY ? bestY - lastTop : fallbackHeight;
+      const valid = Boolean(bestY) && bestScore > 0.16 && bestBefore > 0.24 && bestAfter < 0.24 &&
+        measuredHeight >= cardWidth * 1.08 && measuredHeight <= cardWidth * 1.72;
+      laneResults.push({
+        columnIndex,
+        center,
+        lastTop,
+        bottom: valid ? bestY : Math.round(lastTop + fallbackHeight),
+        measuredHeight,
+        score: bestScore,
+        before: bestBefore,
+        after: bestAfter,
+        valid
+      });
+    });
+
+    const validHeights = laneResults.filter((r) => r.valid).map((r) => r.measuredHeight);
+    let fullCardHeight = validHeights.length >= 3 ? median(validHeights) : fallbackHeight;
+    fullCardHeight = Math.max(cardWidth * 1.08, Math.min(cardWidth * 1.72, fullCardHeight));
+    const validScores = laneResults.filter((r) => r.valid).map((r) => r.score);
+    return {
+      fullCardHeight,
+      fallbackHeight,
+      laneResults,
+      validCount: validHeights.length,
+      confidence: validScores.length ? mean(validScores) : 0,
+      cardWidth
+    };
+  }
+
   function buildDetection(mask, gray, topResult) {
     const c = topResult.best;
     if (!c) throw new Error("No pale eight-column tableau top was found.");
@@ -297,8 +380,11 @@
     const periodic = findPeriodicPeaks(edgeProfile, top, Math.min(mask.rows - 1, top + mask.rows * 0.38), Math.round(mask.rows * 0.026), Math.round(mask.rows * 0.065));
     let rowStep = periodic.step;
     if (!rowStep) rowStep = Math.round(mask.rows * 0.047);
-    const cardWidth = spacing * 0.90;
-    const cardHeight = cardWidth * 1.36;
+
+    // The exposed cards use rowStep, but the final card is fully visible.
+    // Measure that full-card tail separately instead of treating it as another row step.
+    const bottomEvidence = estimateFullCardHeight(mask, centers, spacing, top, rowStep);
+    const cardHeight = bottomEvidence.fullCardHeight;
     const bottomLeft = Math.min(mask.rows - 1, Math.round(top + 6 * rowStep + cardHeight));
     const bottomRight = Math.min(mask.rows - 1, Math.round(top + 5 * rowStep + cardHeight));
     const stepX = Math.round((centers[3] + centers[4]) / 2);
@@ -306,7 +392,6 @@
     const supportRight = rectangleSupport(mask, stepX, right, top, bottomRight);
     const cardSupport = (supportLeft + supportRight) / 2;
     const stepHeight = bottomLeft - bottomRight;
-    const expectedStep = rowStep;
     const rowEvidence = periodic.score / 7;
     const checks = {
       paleTableauTop: c.now > 0.28 && c.rise > 0.035,
@@ -316,7 +401,7 @@
       boardSpan: c.fit.spanRatio > 0.73,
       repeatedRows: rowEvidence > 0.52,
       cardPixelSupport: cardSupport > 0.18,
-      correctStep: stepHeight > expectedStep * 0.72 && stepHeight < expectedStep * 1.35
+      fullCardBottoms: bottomEvidence.validCount >= 3 && bottomEvidence.confidence > 0.16
     };
     const passCount = Object.values(checks).filter(Boolean).length;
     const points = [
@@ -327,7 +412,11 @@
       const count = i < 4 ? 7 : 6;
       return Array.from({ length: count }, (_, r) => ({ x: cx, y: top + r * rowStep }));
     });
-    return { left, right, top, bottomLeft, bottomRight, stepX, centers, spacing, rowStep, cardHeight, stepHeight, points, cardRows, checks, passCount, cardSupport, rowEvidence, topCandidate: c, periodic, edgeProfile };
+    return {
+      left, right, top, bottomLeft, bottomRight, stepX, centers, spacing, rowStep,
+      cardHeight, stepHeight, points, cardRows, checks, passCount, cardSupport,
+      rowEvidence, topCandidate: c, periodic, edgeProfile, bottomEvidence
+    };
   }
 
   function matToDataUrl(mat) {
@@ -345,6 +434,20 @@
     });
     result.periodic.peaks.forEach((y) => cv.line(frame, new cv.Point(result.left, y), new cv.Point(result.right, y), new cv.Scalar(255, 0, 255, 255), 1));
     cv.line(frame, new cv.Point(result.left, result.top), new cv.Point(result.right, result.top), new cv.Scalar(0, 255, 255, 255), 3);
+    return frame;
+  }
+
+  function makeBottomFrame(resized, result) {
+    const cv = window.cv;
+    const frame = resized.clone();
+    result.bottomEvidence.laneResults.forEach((lane) => {
+      const color = lane.valid ? new cv.Scalar(0, 255, 0, 255) : new cv.Scalar(255, 165, 0, 255);
+      const half = result.spacing * 0.40;
+      cv.line(frame, new cv.Point(lane.center - half, lane.lastTop), new cv.Point(lane.center + half, lane.lastTop), new cv.Scalar(255, 255, 0, 255), 2);
+      cv.line(frame, new cv.Point(lane.center - half, lane.bottom), new cv.Point(lane.center + half, lane.bottom), color, 3);
+    });
+    cv.line(frame, new cv.Point(result.left, result.bottomLeft), new cv.Point(result.stepX, result.bottomLeft), new cv.Scalar(0, 255, 255, 255), 3);
+    cv.line(frame, new cv.Point(result.stepX, result.bottomRight), new cv.Point(result.right, result.bottomRight), new cv.Scalar(0, 255, 255, 255), 3);
     return frame;
   }
 
@@ -393,7 +496,7 @@
     const labels = {
       paleTableauTop: "Pale tableau top", eightColumns: "Eight column lanes", widthConsistency: "Card-width consistency",
       spacingConsistency: "Column-spacing consistency", boardSpan: "Tableau spans board", repeatedRows: "Repeated card-row edges",
-      cardPixelSupport: "Card-surface support", correctStep: "One-row bottom step"
+      cardPixelSupport: "Card-surface support", fullCardBottoms: "Full-card bottom evidence"
     };
     Object.entries(result.checks).forEach(([key, pass]) => {
       const item = document.createElement("span"); item.className = "scan-column-count" + (pass ? "" : " scan-column-warning");
@@ -416,7 +519,7 @@
     if (!cvReady || !window.cv || typeof window.cv.imread !== "function") { updateCvStatus("OpenCV is not ready yet.", "warning"); return; }
     detectButton.disabled = true;
     updateCvStatus("Locating the pale tableau region, eight lanes, and repeated card rows…", "working");
-    let src, resized, rgb, gray, mask, profileFrame, geometryFrame;
+    let src, resized, rgb, gray, mask, profileFrame, bottomFrame, geometryFrame;
     try {
       ensureCanvas(); const cv = window.cv;
       src = cv.imread(sourceCanvas);
@@ -428,8 +531,9 @@
       const topResult = findTableauTop(mask);
       const small = buildDetection(mask, gray, topResult);
       profileFrame = makeProfileFrame(resized, small, topResult);
+      bottomFrame = makeBottomFrame(resized, small);
       geometryFrame = makeGeometryFrame(resized, small);
-      debugFrames = { original: matToDataUrl(resized), mask: matToDataUrl(mask), profile: matToDataUrl(profileFrame), geometry: matToDataUrl(geometryFrame) };
+      debugFrames = { original: matToDataUrl(resized), mask: matToDataUrl(mask), profile: matToDataUrl(profileFrame), bottoms: matToDataUrl(bottomFrame), geometry: matToDataUrl(geometryFrame) };
       const inv = 1 / scale;
       detection = {
         ...small,
@@ -437,7 +541,7 @@
         left: small.left * inv, right: small.right * inv, top: small.top * inv,
         bottomLeft: small.bottomLeft * inv, bottomRight: small.bottomRight * inv, stepX: small.stepX * inv,
         centers: small.centers.map((v) => v * inv), spacing: small.spacing * inv, rowStep: small.rowStep * inv,
-        cardHeight: small.cardHeight * inv, confidence: small.passCount / 8
+        cardHeight: small.cardHeight * inv, bottomEvidence: small.bottomEvidence, confidence: small.passCount / 8
       };
       drawDetection(detection);
       if (debugPanel) debugPanel.hidden = false;
@@ -446,7 +550,7 @@
         selectedTop: Math.round(small.top), topCoverage: Number(small.topCandidate.now.toFixed(3)), topRise: Number(small.topCandidate.rise.toFixed(3)),
         topCandidateScore: Number(small.topCandidate.score.toFixed(3)), widthCV: Number(small.topCandidate.fit.widthCV.toFixed(3)),
         spacingCV: Number(small.topCandidate.fit.gapCV.toFixed(3)), rowStep: Math.round(small.rowStep), rowEvidence: Number(small.rowEvidence.toFixed(3)),
-        cardHeight: Math.round(small.cardHeight), cardSupport: Number(small.cardSupport.toFixed(3)), stepHeight: Math.round(small.stepHeight), passes: small.passCount
+        rowStep: Math.round(small.rowStep), fullCardHeight: Math.round(small.cardHeight), bottomEvidenceValid: small.bottomEvidence.validCount, bottomEvidenceConfidence: Number(small.bottomEvidence.confidence.toFixed(3)), laneBottoms: small.bottomEvidence.laneResults.map((r) => ({ column: r.columnIndex + 1, valid: r.valid, lastTop: Math.round(r.lastTop), bottom: Math.round(r.bottom), score: Number(r.score.toFixed(3)) })), cardSupport: Number(small.cardSupport.toFixed(3)), stepHeight: Math.round(small.stepHeight), passes: small.passCount
       }, null, 2);
       const perfect = detection.passCount === 8;
       updateCvStatus(perfect ? "Board detected. Review the cyan outline." : "Board candidate found. Open Debug View and review the failed check.", perfect ? "ready" : "warning");
@@ -455,7 +559,7 @@
       console.error(error); clearDetection(); updateCvStatus(`Board not found: ${error.message}`, "warning");
       announce("OpenCV could not establish the tableau hierarchy in this image.", "error");
     } finally {
-      [src, resized, rgb, gray, mask, profileFrame, geometryFrame].forEach((m) => { if (m && typeof m.delete === "function") m.delete(); });
+      [src, resized, rgb, gray, mask, profileFrame, bottomFrame, geometryFrame].forEach((m) => { if (m && typeof m.delete === "function") m.delete(); });
       detectButton.disabled = false;
     }
   }
