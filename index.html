@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>FreeCell Solver — Board Input</title>
-  <link rel="stylesheet" href="css/styles.css?v=18">
+  <link rel="stylesheet" href="css/styles.css?v=20">
 </head>
 <body class="input-page">
   <main class="input-shell">
@@ -117,13 +117,14 @@
                 <option value="original">Normalized image</option>
                 <option value="mask">Strict card-surface mask</option>
                 <option value="profile">Tableau top and row-profile evidence</option>
+                <option value="bottoms">Full-card bottom evidence</option>
                 <option value="geometry" selected>Final geometry and card rows</option>
               </select>
             </label>
           </div>
           <canvas id="scan-debug-canvas"></canvas>
           <details><summary>Detection measurements</summary><pre id="scan-debug-text"></pre></details>
-          <p class="scan-debug-note">The strict mask should mostly contain pale card surfaces. The profile view shows the chosen tableau top and horizontal-edge peaks. The geometry view shows the fitted 7/7/7/7 + 6/6/6/6 model.</p>
+          <p class="scan-debug-note">The strict mask should mostly contain pale card surfaces. The profile view shows the tableau top and exposed-row spacing. The bottom-evidence view shows each final card top and measured physical bottom. The geometry view combines the exposed-row step with the separately measured full-card height.</p>
         </div></details>
 
         <div class="scan-actions">
@@ -135,7 +136,7 @@
         </div>
         <section id="scan-crop-preview-panel" class="scan-crop-preview-panel" hidden aria-label="Tableau detection details">
           <h3>Tableau shape details</h3>
-          <p>The outline is fitted from the detected pale tableau top, eight column lanes, repeated horizontal card edges, and the known FreeCell deal shape. Debug measurements remain available when alignment needs adjustment.</p>
+          <p>The outline is fitted from the detected tableau top, exposed-card row spacing, and the separately measured full height of the final card in each column. Debug measurements remain available when alignment needs adjustment.</p>
           <div id="scan-crop-preview-grid" class="scan-crop-preview-grid"></div>
         </section>
       </div>
@@ -143,13 +144,13 @@
   </section>
 
   <!-- Load OpenCV before RequireJS so the UMD build creates window.cv instead of registering as AMD. -->
-  <script src="js/opencv.js?v=18"></script>
-  <script src="js/opencv-loader.js?v=18"></script>
-  <script src="js/input.js?v=18"></script>
-  <script src="js/scan.js?v=18"></script>
+  <script src="js/opencv.js?v=20"></script>
+  <script src="js/opencv-loader.js?v=20"></script>
+  <script src="js/input.js?v=20"></script>
+  <script src="js/scan.js?v=20"></script>
   <script>
-    var require = { baseUrl: "js", urlArgs: "v=18" };
+    var require = { baseUrl: "js", urlArgs: "v=20" };
   </script>
-  <script src="js/require.js?v=18" data-main="solver"></script>
+  <script src="js/require.js?v=20" data-main="solver"></script>
 </body>
 </html>
