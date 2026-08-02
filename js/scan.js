@@ -574,7 +574,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "fixed-tableau-template-v23",
+          detector: "fixed-tableau-template-v24",
           templateRatios: TEMPLATE,
           x: Math.round(original.left),
           y: Math.round(original.top),
@@ -632,36 +632,81 @@
     }
   }
 
+  function recognitionCropForRegion(region) {
+    // Read only the upper-left rank-and-suit area. This deliberately avoids the
+    // next card, bottom-card artwork, large suit pips, and the teal background.
+    const insetX = detection.spacing * 0.035;
+    const insetY = detection.rowStep * 0.035;
+    const width = detection.spacing * 0.72;
+    const height = detection.rowStep * 0.76;
+    return {
+      x: Math.max(0, region.x + insetX),
+      y: Math.max(0, region.y + insetY),
+      width: Math.min(width, image.naturalWidth - region.x - insetX),
+      height: Math.min(height, image.naturalHeight - region.y - insetY)
+    };
+  }
+
+  function makeCropCanvas(crop) {
+    const canvas = document.createElement("canvas");
+    const sourceWidth = Math.max(1, Math.round(crop.width));
+    const sourceHeight = Math.max(1, Math.round(crop.height));
+
+    // Keep enough native pixels to judge sharpness while limiting memory use.
+    const previewScale = Math.min(1, 240 / sourceWidth);
+    canvas.width = Math.max(1, Math.round(sourceWidth * previewScale));
+    canvas.height = Math.max(1, Math.round(sourceHeight * previewScale));
+
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(
+      sourceCanvas,
+      Math.round(crop.x),
+      Math.round(crop.y),
+      sourceWidth,
+      sourceHeight,
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
+    return canvas;
+  }
+
   function showDetails() {
     if (!detection) {
       announce("Detect the board first.", "error");
       return;
     }
+
+    ensureCanvas();
     detailsGrid.replaceChildren();
-    const data = [
-      ["Top", `${(detection.top / image.naturalHeight * 100).toFixed(1)}%`],
-      ["Left", `${(detection.left / image.naturalWidth * 100).toFixed(1)}%`],
-      ["Width", `${((detection.right - detection.left) / image.naturalWidth * 100).toFixed(1)}%`],
-      ["Column pitch", `${detection.spacing.toFixed(1)} px`],
-      ["Row step", `${detection.rowStep.toFixed(1)} px`],
-      ["Full card height", `${detection.cardHeight.toFixed(1)} px`],
-      ["Card-surface overlap", `${Math.round(detection.metrics.laneMean * 100)}%`],
-      ["Confidence", `${Math.round(detection.confidence * 100)}%`]
-    ];
-    data.forEach(([name, value]) => {
-      const box = document.createElement("div");
-      box.className = "scan-shape-detail";
-      box.innerHTML = `<strong>${name}</strong><span>${value}</span>`;
-      detailsGrid.appendChild(box);
+
+    detection.cardRegions.forEach((region) => {
+      const crop = recognitionCropForRegion(region);
+      const figure = document.createElement("figure");
+      figure.className = "scan-crop-preview-item";
+
+      const canvas = makeCropCanvas(crop);
+      canvas.setAttribute("aria-label", `${region.id} rank-and-suit crop`);
+
+      const caption = document.createElement("figcaption");
+      caption.textContent = region.id;
+
+      figure.append(canvas, caption);
+      detailsGrid.appendChild(figure);
     });
+
     detailsPanel.hidden = false;
     detailsPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+    announce("Showing the 52 upper-left rank-and-suit crops that card recognition will receive.", "success");
   }
 
   function confirmShape() {
     if (!detection || detection.passCount < 8) return;
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      version: 23,
+      version: 24,
       detector: "opencv-fixed-tableau-template",
       imageName: selectedFile ? selectedFile.name : "board image",
       imageWidth: image.naturalWidth,
