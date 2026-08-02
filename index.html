@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>FreeCell Solver — Board Input</title>
-  <link rel="stylesheet" href="css/styles.css?v=13">
+  <link rel="stylesheet" href="css/styles.css?v=14">
 </head>
 <body class="input-page">
   <main class="input-shell">
@@ -87,11 +87,11 @@
       </div>
 
       <div id="scan-preview-panel" class="scan-preview-panel" hidden>
-        <p class="scan-help">Screenshot calibration preview. Internal position IDs are kept by the scanner but are not displayed. This build first proves that OpenCV loaded and can process the selected screenshot.</p>
+        <p class="scan-help">OpenCV column-detection preview. The cyan lanes should each cover exactly one of the eight tableau columns. Card-top strips and crop previews come in the next build.</p>
         <div id="opencv-status" class="opencv-status" role="status">Loading OpenCV…</div>
         <div id="scan-stage" class="scan-stage">
           <img id="scan-image" alt="Selected FreeCell board">
-          <div id="scan-crops" class="scan-crops" aria-label="Detected tableau card crop regions"></div>
+          <div id="scan-crops" class="scan-crops" aria-label="Detected tableau column lanes"></div>
         </div>
 
         <details class="scan-calibration">
@@ -111,13 +111,13 @@
         <div class="scan-actions">
           <button id="scan-choose-another" class="scan-secondary" type="button">Choose Another</button>
           <button id="scan-reset-calibration" class="scan-secondary" type="button">Reset Calibration</button>
-          <button id="scan-detect-tops" class="scan-secondary" type="button">Run OpenCV Test</button>
-          <button id="scan-preview-crops" class="scan-secondary" type="button">Preview 52 Crops</button>
-          <button id="scan-confirm-crops" class="scan-primary" type="button">Confirm 52 Strips</button>
+          <button id="scan-detect-tops" class="scan-secondary" type="button">Detect 8 Columns</button>
+          <button id="scan-preview-crops" class="scan-secondary" type="button" hidden>Preview 52 Crops</button>
+          <button id="scan-confirm-crops" class="scan-primary" type="button">Confirm 8 Columns</button>
         </div>
         <section id="scan-crop-preview-panel" class="scan-crop-preview-panel" hidden aria-label="Cropped card corner preview">
-          <h3>52 rank-and-suit crop previews</h3>
-          <p>Every thumbnail is cut from the exact same normalized region object used to draw its cyan box. Internal position IDs remain available to the program but are hidden from the interface.</p>
+          <h3>Card crop previews</h3>
+          <p>Crop previews are intentionally disabled while the eight-column geometry is being verified.</p>
           <div id="scan-crop-preview-grid" class="scan-crop-preview-grid"></div>
         </section>
       </div>
@@ -125,13 +125,13 @@
   </section>
 
   <!-- Load OpenCV before RequireJS so the UMD build creates window.cv instead of registering as AMD. -->
-  <script src="js/opencv.js?v=13"></script>
-  <script src="js/opencv-loader.js?v=13"></script>
-  <script src="js/input.js?v=13"></script>
-  <script src="js/scan.js?v=13"></script>
+  <script src="js/opencv.js?v=14"></script>
+  <script src="js/opencv-loader.js?v=14"></script>
+  <script src="js/input.js?v=14"></script>
+  <script src="js/scan.js?v=14"></script>
   <script>
-    var require = { baseUrl: "js", urlArgs: "v=13" };
+    var require = { baseUrl: "js", urlArgs: "v=14" };
   </script>
-  <script src="js/require.js?v=13" data-main="solver"></script>
+  <script src="js/require.js?v=14" data-main="solver"></script>
 </body>
 </html>
