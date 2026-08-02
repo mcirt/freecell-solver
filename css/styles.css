@@ -554,3 +554,5 @@ button, textarea, select, a { font: inherit; }
   border-color: #ffb02e;
   box-shadow: 0 0 10px rgba(255,176,46,.8), inset 0 0 8px rgba(255,176,46,.15);
 }
+
+/* v15: fixed-board template alignment; lane bottoms may vary by column. */
