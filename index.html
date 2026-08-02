@@ -131,12 +131,12 @@
           <button id="scan-choose-another" class="scan-secondary" type="button">Choose Another</button>
           <button id="scan-reset-calibration" class="scan-secondary" type="button">Reset Calibration</button>
           <button id="scan-detect-tops" class="scan-secondary" type="button">Detect Tableau Shape</button>
-          <button id="scan-preview-crops" class="scan-secondary" type="button">Show Shape Details</button>
+          <button id="scan-preview-crops" class="scan-secondary" type="button">Show 52 Card Thumbnails</button>
           <button id="scan-confirm-crops" class="scan-primary" type="button">Confirm Tableau Shape</button>
         </div>
-        <section id="scan-crop-preview-panel" class="scan-crop-preview-panel" hidden aria-label="Tableau detection details">
-          <h3>Tableau shape details</h3>
-          <p>The scanner fits one fixed tableau template to the strict card-surface mask. Position and scale are detected once; all 52 labeled card regions are then generated from the fitted template.</p>
+        <section id="scan-crop-preview-panel" class="scan-crop-preview-panel" hidden aria-label="Card recognition thumbnail preview">
+          <h3>52 rank-and-suit thumbnails</h3>
+          <p>These are the exact upper-left crops that the recognition stage will receive. Each crop is intentionally smaller than the full card slot to avoid the next card, face-card artwork, large bottom suit symbols, and the teal background.</p>
           <div id="scan-crop-preview-grid" class="scan-crop-preview-grid"></div>
         </section>
       </div>
@@ -147,7 +147,7 @@
   <script src="js/opencv.js?v=21"></script>
   <script src="js/opencv-loader.js?v=21"></script>
   <script src="js/input.js?v=20"></script>
-  <script src="js/scan.js?v=21"></script>
+  <script src="js/scan.js?v=24"></script>
   <script>
     var require = { baseUrl: "js", urlArgs: "v=20" };
   </script>
