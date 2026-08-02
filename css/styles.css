@@ -559,3 +559,9 @@ button, textarea, select, a { font: inherit; }
 #scan-debug-canvas { display:block; width:100%; height:auto; max-height:62vh; object-fit:contain; border:1px solid #54dbe7; border-radius:8px; background:#000; }
 #scan-debug-text { overflow:auto; max-height:260px; padding:10px; background:#020d1d; color:#8fffd7; border-radius:8px; white-space:pre-wrap; }
 .scan-debug-note { margin:.7rem 0 0; color:#c5e8f2; font-size:.92rem; }
+
+/* v18: cleaner picker and collapsible diagnostics */
+.scan-picker-panel { min-height:260px; }
+.scan-debug-panel > summary { cursor:pointer; color:#35f2e7; font-size:1.08rem; font-weight:800; padding:4px 0 10px; }
+.scan-debug-body { padding-top:6px; }
+.scan-debug-panel:not([open]) .scan-debug-body { display:none; }
