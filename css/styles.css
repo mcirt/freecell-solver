@@ -566,3 +566,28 @@ button, textarea, select, a { font: inherit; }
 .scan-debug-panel > summary { cursor:pointer; color:#35f2e7; font-size:1.08rem; font-weight:800; padding:4px 0 10px; }
 .scan-debug-body { padding-top:6px; }
 .scan-debug-panel:not([open]) .scan-debug-body { display:none; }
+
+
+/* v24: 52 recognition-thumbnail review */
+#scan-crop-preview-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.scan-crop-preview-item {
+  border-color: rgba(116, 235, 255, 0.78);
+  background: #f7f7fb;
+}
+.scan-crop-preview-item canvas {
+  aspect-ratio: auto;
+  min-height: 54px;
+  object-fit: contain;
+}
+.scan-crop-preview-item figcaption {
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+@media (min-width: 700px) {
+  #scan-crop-preview-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
