@@ -21,13 +21,18 @@
   const checksEl = byId("scan-column-counts");
   const cvStatus = byId("opencv-status");
   const message = byId("input-message");
+  const debugPanel = byId("scan-debug-panel");
+  const debugSelect = byId("scan-debug-view");
+  const debugCanvas = byId("scan-debug-canvas");
+  const debugText = byId("scan-debug-text");
 
-  const SESSION_KEY = "freecellPendingScanV16";
+  const SESSION_KEY = "freecellPendingScanV17";
   let selectedFile = null;
   let objectUrl = null;
   let sourceCanvas = null;
   let detection = null;
   let cvReady = false;
+  let debugFrames = {};
 
   function announce(text, kind) {
     if (!message) return;
@@ -51,7 +56,7 @@
     ready.then(() => {
       cvReady = true;
       detectButton.disabled = false;
-      updateCvStatus("OpenCV ready. Choose an image, then detect the tableau shape.", "ready");
+      updateCvStatus("OpenCV ready. Choose an image, then detect the tableau.", "ready");
       if (image.naturalWidth) detectTableauShape();
     }).catch((error) => {
       console.error(error);
@@ -72,11 +77,13 @@
 
   function clearDetection() {
     detection = null;
+    debugFrames = {};
     overlay.replaceChildren();
     checksEl.replaceChildren();
     summaryEl.textContent = "No tableau shape detected yet.";
     detailsPanel.hidden = true;
     detailsGrid.replaceChildren();
+    if (debugPanel) debugPanel.hidden = true;
     confirmButton.disabled = true;
   }
 
@@ -99,134 +106,218 @@
     sourceCanvas.getContext("2d", { willReadFrequently: true }).drawImage(image, 0, 0);
   }
 
-  function rowCoverage(mask, rect, y) {
-    let on = 0;
-    let total = 0;
-    const step = Math.max(1, Math.round(rect.width / 260));
-    for (let x = rect.x; x < rect.x + rect.width; x += step) {
-      on += mask.ucharPtr(y, x)[0] ? 1 : 0;
-      total += 1;
-    }
-    return on / Math.max(1, total);
-  }
-
-  function columnCoverage(mask, rect, x, y0, y1) {
-    let on = 0;
-    let total = 0;
-    const step = Math.max(1, Math.round((y1 - y0) / 220));
-    for (let y = y0; y <= y1; y += step) {
-      on += mask.ucharPtr(y, x)[0] ? 1 : 0;
-      total += 1;
-    }
-    return on / Math.max(1, total);
-  }
-
-  function findTableauCandidate(mask) {
+  function makeCardMask(rgb) {
     const cv = window.cv;
-    const contours = new cv.MatVector();
-    const hierarchy = new cv.Mat();
-    cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    const gray = new cv.Mat();
+    const hsv = new cv.Mat();
+    const neutral = new cv.Mat();
+    const bright = new cv.Mat();
+    const adaptive = new cv.Mat();
+    const mask = new cv.Mat();
+    cv.cvtColor(rgb, gray, cv.COLOR_RGB2GRAY);
+    cv.cvtColor(rgb, hsv, cv.COLOR_RGB2HSV);
 
-    let best = null;
-    for (let i = 0; i < contours.size(); i += 1) {
-      const contour = contours.get(i);
-      const rect = cv.boundingRect(contour);
-      const area = cv.contourArea(contour);
-      contour.delete();
+    const lowNeutral = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, 0, 130, 0]);
+    const highNeutral = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [180, 105, 255, 255]);
+    cv.inRange(hsv, lowNeutral, highNeutral, neutral);
 
-      const wr = rect.width / mask.cols;
-      const hr = rect.height / mask.rows;
-      const yr = rect.y / mask.rows;
-      const aspect = rect.width / Math.max(1, rect.height);
-      if (wr < 0.52 || wr > 0.99) continue;
-      if (hr < 0.10 || hr > 0.52) continue;
-      if (yr < 0.12 || yr > 0.72) continue;
-      if (aspect < 1.25 || aspect > 5.8) continue;
+    cv.threshold(gray, bright, 148, 255, cv.THRESH_BINARY);
+    cv.adaptiveThreshold(gray, adaptive, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 31, -3);
+    cv.bitwise_and(bright, neutral, mask);
+    cv.bitwise_or(mask, adaptive, mask);
 
-      const fill = area / Math.max(1, rect.width * rect.height);
-      const centerPenalty = Math.abs((rect.x + rect.width / 2) / mask.cols - 0.5);
-      const score = wr * 4 + fill * 2.5 + Math.min(aspect, 3.5) * 0.25 - centerPenalty * 2 - Math.abs(yr - 0.38) * 0.5;
-      if (!best || score > best.score) best = { rect, area, fill, score };
+    const openKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 3));
+    cv.morphologyEx(mask, mask, cv.MORPH_OPEN, openKernel);
+    openKernel.delete();
+    const closeKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(7, 5));
+    cv.morphologyEx(mask, mask, cv.MORPH_CLOSE, closeKernel);
+    closeKernel.delete();
+
+    gray.delete(); hsv.delete(); neutral.delete(); bright.delete(); adaptive.delete();
+    lowNeutral.delete(); highNeutral.delete();
+    return mask;
+  }
+
+  function smooth(values, radius) {
+    const out = new Float32Array(values.length);
+    let sum = 0;
+    for (let i = 0; i < values.length; i += 1) {
+      sum += values[i];
+      if (i - radius - 1 >= 0) sum -= values[i - radius - 1];
+      const start = Math.max(0, i - radius);
+      out[i] = sum / (i - start + 1);
     }
-    contours.delete();
-    hierarchy.delete();
+    return out;
+  }
+
+  function runsFromProfile(profile, threshold, minWidth, maxGap) {
+    const raw = [];
+    let start = -1;
+    for (let x = 0; x <= profile.length; x += 1) {
+      const on = x < profile.length && profile[x] >= threshold;
+      if (on && start < 0) start = x;
+      if (!on && start >= 0) {
+        if (x - start >= minWidth) raw.push({ start, end: x - 1, width: x - start });
+        start = -1;
+      }
+    }
+    const merged = [];
+    raw.forEach((r) => {
+      const last = merged[merged.length - 1];
+      if (last && r.start - last.end - 1 <= maxGap) {
+        last.end = r.end; last.width = last.end - last.start + 1;
+      } else merged.push({ ...r });
+    });
+    return merged;
+  }
+
+  function bandProfile(mask, y0, y1) {
+    const profile = new Float32Array(mask.cols);
+    const h = Math.max(1, y1 - y0 + 1);
+    for (let y = y0; y <= y1; y += 1) {
+      const row = mask.ucharPtr(y);
+      for (let x = 0; x < mask.cols; x += 1) if (row[x]) profile[x] += 1;
+    }
+    for (let x = 0; x < profile.length; x += 1) profile[x] /= h;
+    return smooth(profile, 2);
+  }
+
+  function scoreEightRuns(runs, cols) {
+    if (runs.length < 8) return null;
+    let best = null;
+    for (let s = 0; s <= runs.length - 8; s += 1) {
+      const group = runs.slice(s, s + 8);
+      const widths = group.map((r) => r.width);
+      const centers = group.map((r) => (r.start + r.end) / 2);
+      const gaps = centers.slice(1).map((c, i) => c - centers[i]);
+      const meanW = widths.reduce((a, b) => a + b, 0) / 8;
+      const meanG = gaps.reduce((a, b) => a + b, 0) / 7;
+      const cvW = Math.sqrt(widths.reduce((a, v) => a + (v - meanW) ** 2, 0) / 8) / Math.max(1, meanW);
+      const cvG = Math.sqrt(gaps.reduce((a, v) => a + (v - meanG) ** 2, 0) / 7) / Math.max(1, meanG);
+      const span = group[7].end - group[0].start + 1;
+      const spanRatio = span / cols;
+      if (meanW < cols * 0.055 || meanW > cols * 0.15) continue;
+      if (spanRatio < 0.62 || spanRatio > 0.99) continue;
+      const score = 5 - cvW * 8 - cvG * 9 - Math.abs(spanRatio - 0.9) * 2;
+      if (!best || score > best.score) best = { runs: group, centers, meanW, meanG, cvW, cvG, spanRatio, score };
+    }
     return best;
   }
 
-  function deriveSilhouette(mask, candidate) {
-    const r = candidate.rect;
-    const yStart = Math.max(0, r.y - Math.round(mask.rows * 0.025));
-    const yEnd = Math.min(mask.rows - 1, r.y + r.height - 1);
-
-    let top = r.y;
-    for (let y = yStart; y <= Math.min(yEnd, r.y + Math.round(r.height * 0.35)); y += 1) {
-      if (rowCoverage(mask, r, y) > 0.46) { top = y; break; }
+  function locateFirstCardRow(mask) {
+    const yMin = Math.round(mask.rows * 0.18);
+    const yMax = Math.round(mask.rows * 0.72);
+    const bandH = Math.max(5, Math.round(mask.rows * 0.008));
+    const minRun = Math.max(8, Math.round(mask.cols * 0.035));
+    const maxGap = Math.max(3, Math.round(mask.cols * 0.012));
+    const candidates = [];
+    for (let y = yMin; y <= yMax; y += Math.max(2, Math.round(bandH / 2))) {
+      const profile = bandProfile(mask, y, Math.min(mask.rows - 1, y + bandH));
+      const runs = runsFromProfile(profile, 0.34, minRun, maxGap);
+      const fit = scoreEightRuns(runs, mask.cols);
+      if (!fit) continue;
+      const belowY = Math.min(mask.rows - 1, y + Math.round(mask.rows * 0.035));
+      const below = bandProfile(mask, belowY, Math.min(mask.rows - 1, belowY + bandH));
+      const support = fit.centers.reduce((sum, cx) => sum + below[Math.round(cx)], 0) / 8;
+      const topPreference = 1 - (y - yMin) / Math.max(1, yMax - yMin);
+      candidates.push({ y, bandH, ...fit, support, totalScore: fit.score + support * 2 + topPreference * 0.15 });
     }
+    candidates.sort((a, b) => b.totalScore - a.totalScore);
+    return { best: candidates[0] || null, candidates: candidates.slice(0, 12) };
+  }
 
-    const halfX = r.x + r.width / 2;
-    const leftX0 = r.x;
-    const leftX1 = Math.round(halfX - 1);
-    const rightX0 = Math.round(halfX);
-    const rightX1 = r.x + r.width - 1;
+  function laneCoverage(mask, x0, x1, y) {
+    x0 = Math.max(0, Math.round(x0)); x1 = Math.min(mask.cols - 1, Math.round(x1));
+    const row = mask.ucharPtr(y);
+    let on = 0;
+    for (let x = x0; x <= x1; x += 1) if (row[x]) on += 1;
+    return on / Math.max(1, x1 - x0 + 1);
+  }
 
-    function lowestPixel(x0, x1) {
-      let last = top;
-      const stepX = Math.max(1, Math.round((x1 - x0) / 220));
-      for (let y = top; y <= yEnd; y += 1) {
-        let found = false;
-        for (let x = x0; x <= x1; x += stepX) {
-          if (mask.ucharPtr(y, x)[0]) { found = true; break; }
-        }
-        if (found) last = y;
+  function detectLaneBottom(mask, center, laneWidth, top) {
+    const x0 = center - laneWidth * 0.34;
+    const x1 = center + laneWidth * 0.34;
+    const values = new Float32Array(mask.rows - top);
+    for (let y = top; y < mask.rows; y += 1) values[y - top] = laneCoverage(mask, x0, x1, y);
+    const sm = smooth(values, Math.max(2, Math.round(mask.rows * 0.003)));
+    let lastGood = top;
+    let misses = 0;
+    const maxMisses = Math.max(8, Math.round(mask.rows * 0.012));
+    for (let i = 0; i < sm.length; i += 1) {
+      if (sm[i] > 0.18) { lastGood = top + i; misses = 0; }
+      else if (lastGood > top) {
+        misses += 1;
+        if (misses > maxMisses) break;
       }
-      return last;
     }
+    return lastGood;
+  }
 
-    let bottomLeft = lowestPixel(leftX0, leftX1);
-    let bottomRight = lowestPixel(rightX0, rightX1);
-    if (bottomLeft < bottomRight) {
-      const temp = bottomLeft;
-      bottomLeft = bottomRight;
-      bottomRight = temp;
+  function evaluateSupport(mask, shape, rowFit) {
+    let insideOn = 0, insideTotal = 0;
+    const step = 3;
+    for (let y = shape.top; y <= shape.bottomLeft; y += step) {
+      const xEnd = y <= shape.bottomRight ? shape.right : shape.stepX;
+      for (let x = shape.left; x <= xEnd; x += step) {
+        insideOn += mask.ucharPtr(y, x)[0] ? 1 : 0;
+        insideTotal += 1;
+      }
     }
+    const firstRowSupport = rowFit.centers.reduce((sum, cx) => sum + laneCoverage(mask, cx - rowFit.meanW * 0.35, cx + rowFit.meanW * 0.35, shape.top + Math.round(rowFit.bandH / 2)), 0) / 8;
+    return { interiorSupport: insideOn / Math.max(1, insideTotal), firstRowSupport };
+  }
 
-    // Estimate left/right boundaries by looking for sustained vertical card pixels.
-    let left = r.x;
-    let right = r.x + r.width - 1;
-    for (let x = r.x; x < r.x + r.width * 0.18; x += 1) {
-      if (columnCoverage(mask, r, x, top, bottomLeft) > 0.24) { left = x; break; }
-    }
-    for (let x = r.x + r.width - 1; x > r.x + r.width * 0.82; x -= 1) {
-      if (columnCoverage(mask, r, x, top, bottomRight) > 0.24) { right = x; break; }
-    }
-
-    const stepX = Math.round(left + (right - left) * 0.5);
+  function buildDetection(mask, rowResult) {
+    const fit = rowResult.best;
+    if (!fit) throw new Error("Could not find one row of eight evenly spaced card tops.");
+    const centers = fit.centers;
+    const laneWidth = fit.meanG;
+    const left = Math.max(0, Math.round(centers[0] - laneWidth / 2));
+    const right = Math.min(mask.cols - 1, Math.round(centers[7] + laneWidth / 2));
+    const top = fit.y;
+    const bottoms = centers.map((c) => detectLaneBottom(mask, c, laneWidth, top));
+    const leftBottoms = bottoms.slice(0, 4).sort((a, b) => a - b);
+    const rightBottoms = bottoms.slice(4).sort((a, b) => a - b);
+    const bottomLeft = Math.round((leftBottoms[1] + leftBottoms[2]) / 2);
+    const bottomRight = Math.round((rightBottoms[1] + rightBottoms[2]) / 2);
+    const stepX = Math.round((centers[3] + centers[4]) / 2);
     const stepHeight = bottomLeft - bottomRight;
-    const expectedStep = Math.max(4, Math.round((bottomLeft - top) / 7.2));
-    const stepRatio = stepHeight / Math.max(1, expectedStep);
-
-    const points = [
-      { x: left, y: top },
-      { x: right, y: top },
-      { x: right, y: bottomRight },
-      { x: stepX, y: bottomRight },
-      { x: stepX, y: bottomLeft },
-      { x: left, y: bottomLeft }
-    ];
-
-    const width = right - left;
-    const height = bottomLeft - top;
-    const laneWidth = width / 8;
+    const expectedRowStep = Math.max(1, (bottomLeft - top) / 7);
+    const shape = { left, right, top, bottomLeft, bottomRight, stepX, laneWidth, centers, bottoms, stepHeight, expectedRowStep };
+    const support = evaluateSupport(mask, shape, fit);
     const checks = {
-      broadCandidate: width / mask.cols > 0.58,
-      sharedTop: rowCoverage(mask, { x: left, width, y: top, height }, top) > 0.42,
-      correctStepDirection: bottomLeft > bottomRight,
-      plausibleStep: stepRatio > 0.35 && stepRatio < 2.2,
-      plausibleAspect: width / Math.max(1, height) > 1.45 && width / Math.max(1, height) < 4.8,
-      eightLanes: laneWidth > mask.cols * 0.055 && laneWidth < mask.cols * 0.16
+      eightFirstCards: fit.runs.length === 8,
+      widthConsistency: fit.cvW < 0.22,
+      spacingConsistency: fit.cvG < 0.16,
+      broadTableau: fit.spanRatio > 0.68,
+      cardPixelSupport: support.interiorSupport > 0.22,
+      firstRowSupport: support.firstRowSupport > 0.34,
+      correctStepDirection: stepHeight > expectedRowStep * 0.28,
+      plausibleStep: stepHeight < expectedRowStep * 2.0
     };
     const passCount = Object.values(checks).filter(Boolean).length;
-    return { points, top, left, right, bottomLeft, bottomRight, stepX, stepHeight, expectedStep, laneWidth, checks, passCount };
+    const points = [
+      { x: left, y: top }, { x: right, y: top }, { x: right, y: bottomRight },
+      { x: stepX, y: bottomRight }, { x: stepX, y: bottomLeft }, { x: left, y: bottomLeft }
+    ];
+    return { ...shape, points, checks, passCount, support, rowFit: fit, candidates: rowResult.candidates };
+  }
+
+  function matToDataUrl(mat) {
+    const canvas = document.createElement("canvas");
+    cv.imshow(canvas, mat);
+    return canvas.toDataURL("image/png");
+  }
+
+  function buildAnnotatedFrame(resized, rowResult, result) {
+    const cv = window.cv;
+    const frame = resized.clone();
+    rowResult.candidates.forEach((c, idx) => {
+      const color = idx === 0 ? new cv.Scalar(0, 255, 0, 255) : new cv.Scalar(255, 180, 0, 255);
+      c.runs.forEach((r) => cv.rectangle(frame, new cv.Point(r.start, c.y), new cv.Point(r.end, c.y + c.bandH), color, idx === 0 ? 3 : 1));
+    });
+    result.centers.forEach((cx) => cv.line(frame, new cv.Point(cx, result.top), new cv.Point(cx, result.bottomLeft), new cv.Scalar(0, 255, 255, 255), 2));
+    return frame;
   }
 
   function drawDetection(result) {
@@ -236,35 +327,28 @@
     svg.setAttribute("viewBox", `0 0 ${image.naturalWidth} ${image.naturalHeight}`);
     svg.setAttribute("preserveAspectRatio", "none");
     svg.classList.add("scan-silhouette-svg");
-
     const polygon = document.createElementNS(ns, "polygon");
     polygon.setAttribute("points", result.points.map((p) => `${p.x},${p.y}`).join(" "));
-    polygon.setAttribute("class", result.passCount >= 5 ? "scan-silhouette-good" : "scan-silhouette-review");
+    polygon.setAttribute("class", result.passCount >= 7 ? "scan-silhouette-good" : "scan-silhouette-review");
     svg.appendChild(polygon);
-
     for (let i = 1; i < 8; i += 1) {
-      const x = result.left + result.laneWidth * i;
+      const x = (result.centers[i - 1] + result.centers[i]) / 2;
       const y2 = i <= 4 ? result.bottomLeft : result.bottomRight;
       const line = document.createElementNS(ns, "line");
-      line.setAttribute("x1", x);
-      line.setAttribute("x2", x);
-      line.setAttribute("y1", result.top);
-      line.setAttribute("y2", y2);
+      line.setAttribute("x1", x); line.setAttribute("x2", x);
+      line.setAttribute("y1", result.top); line.setAttribute("y2", y2);
       line.setAttribute("class", "scan-silhouette-divider");
       svg.appendChild(line);
     }
     overlay.appendChild(svg);
 
-    const passed = result.passCount;
-    summaryEl.textContent = `${passed}/6 tableau-shape checks passed • image ${image.naturalWidth} × ${image.naturalHeight}`;
+    summaryEl.textContent = `${result.passCount}/8 evidence checks passed • image ${image.naturalWidth} × ${image.naturalHeight}`;
     checksEl.replaceChildren();
     const labels = {
-      broadCandidate: "Large card region",
-      sharedTop: "Shared top edge",
-      correctStepDirection: "Columns 1–4 lower",
-      plausibleStep: "Bottom step size",
-      plausibleAspect: "Tableau proportions",
-      eightLanes: "Eight-column width"
+      eightFirstCards: "Eight first-card regions", widthConsistency: "Card-width consistency",
+      spacingConsistency: "Column-spacing consistency", broadTableau: "Tableau spans board",
+      cardPixelSupport: "Card-pixel overlap", firstRowSupport: "First-row pixel support",
+      correctStepDirection: "Columns 1–4 lower", plausibleStep: "Bottom-step size"
     };
     Object.entries(result.checks).forEach(([key, pass]) => {
       const item = document.createElement("span");
@@ -272,7 +356,22 @@
       item.textContent = `${labels[key]}: ${pass ? "Pass" : "Review"}`;
       checksEl.appendChild(item);
     });
-    confirmButton.disabled = passed < 5;
+    confirmButton.disabled = result.passCount < 7;
+  }
+
+  function renderDebugView() {
+    if (!debugCanvas || !debugSelect) return;
+    const frame = debugFrames[debugSelect.value];
+    const ctx = debugCanvas.getContext("2d");
+    ctx.clearRect(0, 0, debugCanvas.width, debugCanvas.height);
+    if (!frame) return;
+    const pic = new Image();
+    pic.onload = () => {
+      debugCanvas.width = pic.naturalWidth;
+      debugCanvas.height = pic.naturalHeight;
+      debugCanvas.getContext("2d").drawImage(pic, 0, 0);
+    };
+    pic.src = frame;
   }
 
   function detectTableauShape() {
@@ -281,10 +380,9 @@
       updateCvStatus("OpenCV is not ready yet. Close and restart Safari if it remains stuck.", "warning");
       return;
     }
-
     detectButton.disabled = true;
-    updateCvStatus("OpenCV is locating the stepped tableau silhouette…", "working");
-    let src, resized, rgb, hsv, mask, closed, kernel, contours;
+    updateCvStatus("OpenCV is finding eight actual first-card regions and tracing their columns…", "working");
+    let src, resized, rgb, mask, annotated;
     try {
       ensureCanvas();
       const cv = window.cv;
@@ -294,63 +392,53 @@
       resized = new cv.Mat();
       cv.resize(src, resized, new cv.Size(Math.round(src.cols * scale), Math.round(src.rows * scale)), 0, 0, cv.INTER_AREA);
       rgb = new cv.Mat();
-      hsv = new cv.Mat();
       cv.cvtColor(resized, rgb, cv.COLOR_RGBA2RGB);
-      cv.cvtColor(rgb, hsv, cv.COLOR_RGB2HSV);
-      mask = new cv.Mat();
-      const low = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [0, 0, 112, 0]);
-      const high = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [180, 150, 255, 255]);
-      cv.inRange(hsv, low, high, mask);
-      low.delete(); high.delete();
+      mask = makeCardMask(rgb);
+      const rowResult = locateFirstCardRow(mask);
+      const small = buildDetection(mask, rowResult);
+      annotated = buildAnnotatedFrame(resized, rowResult, small);
 
-      // Join card faces into one region while retaining the stepped outer boundary.
-      closed = new cv.Mat();
-      const kx = Math.max(5, Math.round(mask.cols * 0.014) | 1);
-      const ky = Math.max(3, Math.round(mask.rows * 0.004) | 1);
-      kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(kx, ky));
-      cv.morphologyEx(mask, closed, cv.MORPH_CLOSE, kernel);
-      const kernel2 = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(3, 5));
-      cv.dilate(closed, closed, kernel2);
-      kernel2.delete();
+      debugFrames = {
+        original: matToDataUrl(resized),
+        mask: matToDataUrl(mask),
+        candidates: matToDataUrl(annotated)
+      };
 
-      const candidate = findTableauCandidate(closed);
-      if (!candidate) throw new Error("No wide stepped card region matched the expected tableau proportions.");
-      const small = deriveSilhouette(closed, candidate);
       const inv = 1 / scale;
       detection = {
+        ...small,
         points: small.points.map((p) => ({ x: p.x * inv, y: p.y * inv })),
-        top: small.top * inv,
-        left: small.left * inv,
-        right: small.right * inv,
-        bottomLeft: small.bottomLeft * inv,
-        bottomRight: small.bottomRight * inv,
-        stepX: small.stepX * inv,
-        stepHeight: small.stepHeight * inv,
-        expectedStep: small.expectedStep * inv,
+        top: small.top * inv, left: small.left * inv, right: small.right * inv,
+        bottomLeft: small.bottomLeft * inv, bottomRight: small.bottomRight * inv,
+        stepX: small.stepX * inv, stepHeight: small.stepHeight * inv,
         laneWidth: small.laneWidth * inv,
-        checks: small.checks,
-        passCount: small.passCount,
-        confidence: small.passCount / 6
+        centers: small.centers.map((v) => v * inv), bottoms: small.bottoms.map((v) => v * inv),
+        confidence: small.passCount / 8
       };
       drawDetection(detection);
-      updateCvStatus(detection.passCount >= 5 ? "Tableau silhouette found. Review the cyan outline." : "A candidate shape was found, but some checks need review.", detection.passCount >= 5 ? "ready" : "warning");
-      announce("OpenCV searched for the board’s stepped 7/7/7/7 + 6/6/6/6 silhouette without relying on the upper slots.", detection.passCount >= 5 ? "success" : "");
+      if (debugPanel) debugPanel.hidden = false;
+      renderDebugView();
+      if (debugText) debugText.textContent = JSON.stringify({
+        firstRowY: Math.round(small.top), candidateScore: Number(small.rowFit.totalScore.toFixed(3)),
+        widthCV: Number(small.rowFit.cvW.toFixed(3)), spacingCV: Number(small.rowFit.cvG.toFixed(3)),
+        interiorSupport: Number(small.support.interiorSupport.toFixed(3)), firstRowSupport: Number(small.support.firstRowSupport.toFixed(3)),
+        bottoms: small.bottoms.map(Math.round), stepHeight: Math.round(small.stepHeight), passes: small.passCount
+      }, null, 2);
+      updateCvStatus(detection.passCount >= 7 ? "Tableau evidence found. Review the cyan outline and Debug View." : "A candidate was found, but the evidence checks need review.", detection.passCount >= 7 ? "ready" : "warning");
+      announce("The outline is now derived from eight detected first-card regions and measured card-pixel support.", detection.passCount >= 7 ? "success" : "");
     } catch (error) {
       console.error(error);
       clearDetection();
-      updateCvStatus(`Tableau shape not found: ${error.message}`, "warning");
-      announce("Try a clearer screenshot/photo, crop closer to the phone screen, or use the manual fallback later.", "error");
+      updateCvStatus(`Tableau not found: ${error.message}`, "warning");
+      announce("Open Debug View after a candidate is found. A future fallback can allow manual corner/step adjustment.", "error");
     } finally {
-      [src, resized, rgb, hsv, mask, closed, kernel].forEach((m) => { if (m && typeof m.delete === "function") m.delete(); });
+      [src, resized, rgb, mask, annotated].forEach((m) => { if (m && typeof m.delete === "function") m.delete(); });
       detectButton.disabled = false;
     }
   }
 
   function showDetails() {
-    if (!detection) {
-      announce("Detect the tableau shape first.", "error");
-      return;
-    }
+    if (!detection) { announce("Detect the tableau first.", "error"); return; }
     detailsGrid.replaceChildren();
     const data = [
       ["Top", `${(detection.top / image.naturalHeight * 100).toFixed(1)}%`],
@@ -358,7 +446,8 @@
       ["Right", `${(detection.right / image.naturalWidth * 100).toFixed(1)}%`],
       ["Columns 1–4 bottom", `${(detection.bottomLeft / image.naturalHeight * 100).toFixed(1)}%`],
       ["Columns 5–8 bottom", `${(detection.bottomRight / image.naturalHeight * 100).toFixed(1)}%`],
-      ["Step height", `${Math.round(detection.stepHeight)} px`],
+      ["Card-pixel overlap", `${Math.round(detection.support.interiorSupport * 100)}%`],
+      ["First-row support", `${Math.round(detection.support.firstRowSupport * 100)}%`],
       ["Confidence", `${Math.round(detection.confidence * 100)}%`]
     ];
     data.forEach(([name, value]) => {
@@ -374,56 +463,36 @@
   function confirmShape() {
     if (!detection) return;
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      version: 16,
-      detector: "opencv-tableau-silhouette",
-      imageName: selectedFile ? selectedFile.name : "board image",
-      imageWidth: image.naturalWidth,
-      imageHeight: image.naturalHeight,
-      silhouette: detection,
-      savedAt: new Date().toISOString()
+      version: 17, detector: "opencv-evidence-tableau", imageName: selectedFile ? selectedFile.name : "board image",
+      imageWidth: image.naturalWidth, imageHeight: image.naturalHeight, silhouette: detection, savedAt: new Date().toISOString()
     }));
     setDialogOpen(false);
-    announce("Tableau silhouette saved for the next card-strip detection stage.", "success");
+    announce("Tableau geometry saved for the card-strip stage.", "success");
   }
 
   function showImage(file) {
-    if (!file || (file.type && !file.type.startsWith("image/"))) {
-      announce("Choose a valid image file.", "error");
-      return;
-    }
-    cleanUrl();
-    selectedFile = file;
-    objectUrl = URL.createObjectURL(file);
+    if (!file || (file.type && !file.type.startsWith("image/"))) { announce("Choose a valid image file.", "error"); return; }
+    cleanUrl(); selectedFile = file; objectUrl = URL.createObjectURL(file);
     image.onload = () => {
-      sourceCanvas = null;
-      pickerPanel.hidden = true;
-      previewPanel.hidden = false;
-      clearDetection();
-      updateCvStatus(cvReady ? "Image loaded. Detecting the tableau shape…" : "Image loaded. Waiting for OpenCV…", "working");
+      sourceCanvas = null; pickerPanel.hidden = true; previewPanel.hidden = false; clearDetection();
+      updateCvStatus(cvReady ? "Image loaded. Detecting tableau evidence…" : "Image loaded. Waiting for OpenCV…", "working");
       if (cvReady) window.setTimeout(detectTableauShape, 30);
     };
     image.onerror = () => announce("The selected image could not be displayed.", "error");
     image.src = objectUrl;
   }
 
-  function handleSelection() {
-    const file = pictureInput.files && pictureInput.files[0];
-    if (file) showImage(file);
-  }
+  function handleSelection() { const file = pictureInput.files && pictureInput.files[0]; if (file) showImage(file); }
 
   if (!openButton || !dialog || !pictureInput) return;
-  initializeOpenCv();
-  detectButton.disabled = true;
-  confirmButton.disabled = true;
+  initializeOpenCv(); detectButton.disabled = true; confirmButton.disabled = true;
   openButton.addEventListener("click", () => setDialogOpen(true));
   closeButton.addEventListener("click", () => setDialogOpen(false));
   dialog.querySelectorAll("[data-scan-cancel]").forEach((node) => node.addEventListener("click", () => setDialogOpen(false)));
-  pictureInput.addEventListener("change", handleSelection);
-  pictureInput.addEventListener("input", handleSelection);
-  chooseAnotherButton.addEventListener("click", showPicker);
-  resetButton.addEventListener("click", clearDetection);
-  detectButton.addEventListener("click", detectTableauShape);
-  detailsButton.addEventListener("click", showDetails);
+  pictureInput.addEventListener("change", handleSelection); pictureInput.addEventListener("input", handleSelection);
+  chooseAnotherButton.addEventListener("click", showPicker); resetButton.addEventListener("click", clearDetection);
+  detectButton.addEventListener("click", detectTableauShape); detailsButton.addEventListener("click", showDetails);
   confirmButton.addEventListener("click", confirmShape);
+  if (debugSelect) debugSelect.addEventListener("change", renderDebugView);
   window.addEventListener("beforeunload", cleanUrl);
 }());
