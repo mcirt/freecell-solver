@@ -23,7 +23,7 @@
   const message = byId("input-message");
 
   const STORAGE_KEY = "freecellScanCalibrationV10";
-  const SESSION_KEY = "freecellPendingScanV10";
+  const SESSION_KEY = "freecellPendingScanV14";
   const COLUMN_COUNTS = [7, 7, 7, 7, 6, 6, 6, 6];
 
   const DEFAULTS = {
@@ -58,6 +58,8 @@
   let lastHandledSignature = "";
   let calibration = loadCalibration();
   let regions = [];
+  let columnLanes = [];
+  let detectionMode = "columns";
   let sourceCanvas = null;
   let sourceCtx = null;
   let selectedRegionId = "";
@@ -211,32 +213,38 @@
     if (target) target.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
-  function renderRegions() {
+  function renderColumnLanes() {
     regionsLayer.replaceChildren();
-    regions.forEach((region) => {
-      const strip = document.createElement("button");
-      strip.type = "button";
-      strip.className = "scan-crop scan-labeled-strip " + (region.valid ? "scan-crop-detected" : "scan-crop-invalid");
-      strip.dataset.regionId = region.id;
-      strip.style.left = `${region.x * 100}%`;
-      strip.style.top = `${region.y * 100}%`;
-      strip.style.width = `${region.width * 100}%`;
-      strip.style.height = `${region.height * 100}%`;
-      strip.title = `${region.id} • ${region.valid ? "valid" : "review"} • score ${Number(region.score || 0).toFixed(2)}`;
-      strip.addEventListener("click", () => selectRegion(region.id, "preview"));
-      regionsLayer.appendChild(strip);
+    columnLanes.forEach((lane) => {
+      const box = document.createElement("div");
+      box.className = "scan-column-lane" + (lane.valid ? "" : " scan-column-lane-warning");
+      box.style.left = `${lane.x * 100}%`;
+      box.style.top = `${lane.y * 100}%`;
+      box.style.width = `${lane.width * 100}%`;
+      box.style.height = `${lane.height * 100}%`;
+      box.title = `Column ${lane.column + 1} • confidence ${Math.round(lane.confidence * 100)}%`;
+      regionsLayer.appendChild(box);
     });
 
-    const validCount = regions.filter((region) => region.valid).length;
-    summaryEl.textContent = `${validCount}/52 valid labeled strips • screenshot ${image.naturalWidth} × ${image.naturalHeight}`;
+    const valid = columnLanes.filter((lane) => lane.valid).length;
+    summaryEl.textContent = `${valid}/8 tableau columns detected • screenshot ${image.naturalWidth} × ${image.naturalHeight}`;
     columnCountsEl.replaceChildren();
-    COLUMN_COUNTS.forEach((count, column) => {
-      const found = regions.filter((region) => region.column === column && region.valid).length;
+    const checks = [
+      ["Detected count", valid === 8, `${valid}/8`],
+      ["Width consistency", columnLanes.every((l) => l.widthConsistent), columnLanes.length ? "checked" : "waiting"],
+      ["Spacing consistency", columnLanes.every((l) => l.spacingConsistent), columnLanes.length ? "checked" : "waiting"],
+      ["Left-to-right order", columnLanes.every((l, i) => i === 0 || l.x > columnLanes[i - 1].x), columnLanes.length ? "checked" : "waiting"]
+    ];
+    checks.forEach(([label, pass, value]) => {
       const item = document.createElement("span");
-      item.className = "scan-column-count" + (found === count ? "" : " scan-column-warning");
-      item.textContent = `Column ${column + 1}: ${found}/${count} valid`;
+      item.className = "scan-column-count" + (pass ? "" : " scan-column-warning");
+      item.textContent = `${label}: ${pass ? "Pass" : "Review"} (${value})`;
       columnCountsEl.appendChild(item);
     });
+  }
+
+  function renderRegions() {
+    renderColumnLanes();
   }
 
   function sampleGrayRows(mat, x0, x1) {
@@ -280,9 +288,146 @@
     return { valid, score: light * 2.2 + Math.min(edge / 80, 1.5) };
   }
 
+  function weightedKMeans1D(weights, count, minX, maxX) {
+    const centers = Array.from({ length: count }, (_, i) => minX + ((i + 0.5) / count) * (maxX - minX));
+    for (let iter = 0; iter < 30; iter += 1) {
+      const sums = new Float64Array(count);
+      const totals = new Float64Array(count);
+      for (let x = minX; x <= maxX; x += 1) {
+        const w = weights[x] || 0;
+        if (w <= 0) continue;
+        let best = 0;
+        let bestDistance = Math.abs(x - centers[0]);
+        for (let i = 1; i < count; i += 1) {
+          const d = Math.abs(x - centers[i]);
+          if (d < bestDistance) { best = i; bestDistance = d; }
+        }
+        sums[best] += x * w;
+        totals[best] += w;
+      }
+      let moved = 0;
+      for (let i = 0; i < count; i += 1) {
+        if (totals[i] > 0) {
+          const next = sums[i] / totals[i];
+          moved += Math.abs(next - centers[i]);
+          centers[i] = next;
+        }
+      }
+      centers.sort((a, b) => a - b);
+      if (moved < 0.05) break;
+    }
+    return centers;
+  }
+
+  function detectEightColumns(cv, src) {
+    const gray = new cv.Mat();
+    const mask = new cv.Mat();
+    try {
+      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+      cv.threshold(gray, mask, 145, 255, cv.THRESH_BINARY);
+
+      const width = mask.cols;
+      const height = mask.rows;
+      const yStart = Math.round(height * 0.31);
+      const yEnd = Math.round(height * 0.69);
+      const xScores = new Float64Array(width);
+
+      for (let x = 0; x < width; x += 2) {
+        let white = 0;
+        let samples = 0;
+        for (let y = yStart; y < yEnd; y += 3) {
+          white += mask.ucharPtr(y, x)[0] > 0 ? 1 : 0;
+          samples += 1;
+        }
+        const score = samples ? white / samples : 0;
+        xScores[x] = score * score;
+        if (x + 1 < width) xScores[x + 1] = xScores[x];
+      }
+
+      let minX = 0;
+      let maxX = width - 1;
+      while (minX < maxX && xScores[minX] < 0.012) minX += 1;
+      while (maxX > minX && xScores[maxX] < 0.012) maxX -= 1;
+      if (maxX - minX < width * 0.65) {
+        minX = Math.round(width * 0.01);
+        maxX = Math.round(width * 0.99);
+      }
+
+      const centers = weightedKMeans1D(xScores, 8, minX, maxX);
+      const spacings = centers.slice(1).map((c, i) => c - centers[i]);
+      const avgSpacing = spacings.reduce((a, b) => a + b, 0) / Math.max(1, spacings.length);
+      const laneWidthPx = Math.max(10, avgSpacing * 0.88);
+
+      // Find the shared first tableau-card row using bright-pixel coverage near the 8 centers.
+      let topY = Math.round(height * 0.32);
+      let bestTopScore = -1;
+      for (let y = Math.round(height * 0.30); y < Math.round(height * 0.48); y += 1) {
+        let total = 0;
+        centers.forEach((center) => {
+          const x0 = Math.max(0, Math.round(center - laneWidthPx * 0.42));
+          const x1 = Math.min(width - 1, Math.round(center + laneWidthPx * 0.42));
+          let rowWhite = 0;
+          let n = 0;
+          for (let x = x0; x <= x1; x += 3) {
+            rowWhite += mask.ucharPtr(y, x)[0] > 0 ? 1 : 0;
+            n += 1;
+          }
+          total += n ? rowWhite / n : 0;
+        });
+        const nextY = Math.min(height - 1, y + 2);
+        let nextTotal = 0;
+        centers.forEach((center) => {
+          const x0 = Math.max(0, Math.round(center - laneWidthPx * 0.42));
+          const x1 = Math.min(width - 1, Math.round(center + laneWidthPx * 0.42));
+          let rowWhite = 0;
+          let n = 0;
+          for (let x = x0; x <= x1; x += 3) {
+            rowWhite += mask.ucharPtr(nextY, x)[0] > 0 ? 1 : 0;
+            n += 1;
+          }
+          nextTotal += n ? rowWhite / n : 0;
+        });
+        const transition = nextTotal - total;
+        if (transition > bestTopScore) { bestTopScore = transition; topY = nextY; }
+      }
+
+      let bottomY = Math.round(height * 0.70);
+      for (let y = Math.round(height * 0.72); y > topY; y -= 1) {
+        let active = 0;
+        centers.forEach((center) => {
+          const x = Math.max(0, Math.min(width - 1, Math.round(center)));
+          if (mask.ucharPtr(y, x)[0] > 0) active += 1;
+        });
+        if (active >= 2) { bottomY = y; break; }
+      }
+      bottomY = Math.max(bottomY, Math.round(height * 0.62));
+
+      const widthDeviation = Math.max(...spacings.map((s) => Math.abs(s - avgSpacing) / avgSpacing), 0);
+      const spacingPass = widthDeviation < 0.12;
+      const lanes = centers.map((center, column) => {
+        const score = xScores[Math.max(0, Math.min(width - 1, Math.round(center)))] || 0;
+        return {
+          column,
+          x: Math.max(0, center - laneWidthPx / 2) / width,
+          y: topY / height,
+          width: Math.min(laneWidthPx, width) / width,
+          height: Math.max(1, bottomY - topY) / height,
+          confidence: Math.max(0, Math.min(1, Math.sqrt(score) * 1.7)),
+          valid: score > 0.018,
+          widthConsistent: true,
+          spacingConsistent: spacingPass
+        };
+      });
+      return { lanes, grayCols: gray.cols, grayRows: gray.rows };
+    } finally {
+      gray.delete();
+      mask.delete();
+    }
+  }
+
   function runOpenCvProofTest() {
     if (!image.naturalWidth || !image.naturalHeight) {
-      announce("Choose a screenshot before running the OpenCV test.", "error");
+      announce("Choose a screenshot before running column detection.", "error");
       return;
     }
     if (!cvReady || !window.cv || typeof window.cv.imread !== "function") {
@@ -294,30 +439,27 @@
       return;
     }
 
-    updateCvStatus("Image loaded. Running OpenCV grayscale test…", "working");
+    updateCvStatus("Running OpenCV eight-column detection…", "working");
     detectButton.disabled = true;
     window.setTimeout(() => {
       let src;
-      let gray;
       try {
         ensureSourceCanvas();
         const cv = window.cv;
         src = cv.imread(sourceCanvas);
-        gray = new cv.Mat();
-        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-        if (gray.cols !== image.naturalWidth || gray.rows !== image.naturalHeight) {
-          throw new Error("OpenCV returned unexpected image dimensions.");
-        }
-        updateCvStatus(`OpenCV test passed — processed ${gray.cols} × ${gray.rows} pixels in grayscale.`, "ready");
-        announce("OpenCV loaded and successfully processed the screenshot. The cyan boxes below are the calibration preview, not automatic detection yet.", "success");
+        const result = detectEightColumns(cv, src);
+        columnLanes = result.lanes;
+        detectionMode = "opencv-columns";
+        renderColumnLanes();
+        const valid = columnLanes.filter((lane) => lane.valid).length;
+        updateCvStatus(`OpenCV detected ${valid}/8 tableau columns in ${result.grayCols} × ${result.grayRows} pixels.`, valid === 8 ? "ready" : "warning");
+        announce(valid === 8 ? "Eight column lanes detected. Check that each cyan lane covers exactly one tableau column." : "Column detection needs adjustment. Open Adjust calibration or choose another screenshot.", valid === 8 ? "success" : "error");
       } catch (error) {
         console.error(error);
-        updateCvStatus("OpenCV loaded, but the screenshot processing test failed.", "warning");
-        announce("OpenCV could not process this screenshot. Try choosing it again or use a PNG/JPEG copy.", "error");
+        updateCvStatus(`OpenCV column detection failed: ${error.message || error}`, "warning");
+        announce("OpenCV could not detect the eight columns. The working manual board-entry page is unaffected.", "error");
       } finally {
-        [src, gray].forEach((mat) => {
-          if (mat && typeof mat.delete === "function") mat.delete();
-        });
+        if (src && typeof src.delete === "function") src.delete();
         detectButton.disabled = false;
       }
     }, 20);
@@ -331,11 +473,22 @@
   function rebuildManualGrid() {
     if (!image.naturalWidth || !image.naturalHeight) return;
     readControls();
-    buildRigidRegions();
-    renderRegions();
+    columnLanes = Array.from({ length: 8 }, (_, column) => ({
+      column,
+      x: (calibration.left + column * calibration.spacing) / 100,
+      y: calibration.top / 100,
+      width: calibration.cropWidth / 100,
+      height: 0.32,
+      confidence: 0,
+      valid: true,
+      widthConsistent: true,
+      spacingConsistent: true
+    }));
+    detectionMode = "manual-columns";
+    renderColumnLanes();
     cropPreviewPanel.hidden = true;
     selectedRegionId = "";
-    announce("Rebuilt the clean calibration grid from the calibration controls.", "success");
+    announce("Rebuilt eight fallback column lanes from the calibration controls.", "success");
   }
 
   function updateCalibration() {
@@ -361,9 +514,11 @@
     pickerPanel.hidden = true;
     previewPanel.hidden = false;
     cropPreviewPanel.hidden = true;
-    buildRigidRegions();
-    renderRegions();
-    announce("Screenshot loaded. The clean cyan grid is the calibration preview.", "success");
+    columnLanes = [];
+    regionsLayer.replaceChildren();
+    summaryEl.textContent = `Waiting to detect 8 tableau columns • screenshot ${image.naturalWidth} × ${image.naturalHeight}`;
+    columnCountsEl.replaceChildren();
+    announce("Screenshot loaded. OpenCV will now look for the eight tableau columns.", "success");
     if (cvReady) runOpenCvProofTest();
     else updateCvStatus("Screenshot loaded. Waiting for OpenCV to finish loading…", "working");
   }
@@ -430,6 +585,8 @@
   }
 
   function renderCropPreview() {
+    announce("The 52-crop preview is intentionally disabled in this build. First confirm the eight detected column lanes.", "");
+    return;
     if (!image.naturalWidth || !image.naturalHeight) return;
     if (!regions.length) buildRigidRegions();
     cropPreviewGrid.replaceChildren();
@@ -450,24 +607,27 @@
   }
 
   function confirmCrops() {
-    if (!regions.length) buildRigidRegions();
+    if (columnLanes.length !== 8) {
+      announce("Detect all eight column lanes before continuing.", "error");
+      return;
+    }
     saveCalibration();
-    const validCount = regions.filter((region) => region.valid).length;
+    const validCount = columnLanes.filter((lane) => lane.valid).length;
     const scanData = {
-      version: 10,
-      detector: cvReady ? "opencv-proof-plus-manual-grid" : "manual-rigid-grid",
+      version: 14,
+      detector: detectionMode,
       calibration: Object.assign({}, calibration),
       imageName: selectedFile ? selectedFile.name : "board screenshot",
       imageType: selectedFile ? selectedFile.type : "image/*",
       imageWidth: image.naturalWidth,
       imageHeight: image.naturalHeight,
-      regions: regions.map((region) => Object.assign({}, region)),
-      validCount,
+      columnLanes: columnLanes.map((lane) => Object.assign({}, lane)),
+      validCount: columnLanes.filter((lane) => lane.valid).length,
       savedAt: new Date().toISOString()
     };
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(scanData));
     setDialogOpen(false);
-    announce(`Saved ${validCount}/52 internal card-strip regions for the recognition stage.`, validCount === 52 ? "success" : "");
+    announce(`Saved ${validCount}/8 detected column lanes for the next card-top stage.`, validCount === 8 ? "success" : "");
   }
 
   if (!openButton || !dialog || !pictureInput) {
