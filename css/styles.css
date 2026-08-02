@@ -548,3 +548,14 @@ button, textarea, select, a { font: inherit; }
 .scan-shape-detail { display:flex; justify-content:space-between; gap:12px; padding:12px; border:1px solid #1ba2af; border-radius:10px; background:#071d42; color:#eaf8ff; }
 .scan-shape-detail strong { color:#26f4e7; }
 #scan-crop-preview-grid:has(.scan-shape-detail) { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+
+
+/* v17 evidence-based detector debug tools */
+.scan-debug-panel { margin:14px 0; padding:14px; border:1px solid #27b7c4; border-radius:12px; background:#061d3f; }
+.scan-debug-header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }
+.scan-debug-header h3 { margin:0; color:#35f2e7; }
+.scan-debug-header label { color:#d9f7ff; font-weight:700; }
+.scan-debug-header select { margin-left:6px; padding:7px; border-radius:7px; background:#0a3264; color:#fff; border:1px solid #3cc9d7; }
+#scan-debug-canvas { display:block; width:100%; height:auto; max-height:62vh; object-fit:contain; border:1px solid #54dbe7; border-radius:8px; background:#000; }
+#scan-debug-text { overflow:auto; max-height:260px; padding:10px; background:#020d1d; color:#8fffd7; border-radius:8px; white-space:pre-wrap; }
+.scan-debug-note { margin:.7rem 0 0; color:#c5e8f2; font-size:.92rem; }
