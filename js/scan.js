@@ -27,7 +27,9 @@
   const debugText = byId("scan-debug-text");
 
   const SESSION_KEY = "freecellPendingScanV23";
-  const RECOGNITION_LIBRARY_KEY = "freecellRecognitionTemplatesV30";
+  const RECOGNITION_LIBRARY_KEY = "freecellRecognitionTemplatesV31";
+  const MAX_TEMPLATES_PER_SYMBOL = 5;
+  const MIN_TEMPLATE_CONFIDENCE = 0.72;
   const RANK_LABELS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
   const SUIT_LABELS = ["S", "C", "H", "D"];
   const SUIT_NAMES = Object.freeze({ S: "♠", C: "♣", H: "♥", D: "♦" });
@@ -65,14 +67,26 @@
 
   function loadRecognitionLibrary() {
     try {
-      const parsed = JSON.parse(localStorage.getItem(RECOGNITION_LIBRARY_KEY) || "{}");
+      const raw = JSON.parse(localStorage.getItem(RECOGNITION_LIBRARY_KEY) || "{}");
+      const normalizeGroup = (group) => {
+        const result = {};
+        Object.entries(group || {}).forEach(([label, value]) => {
+          if (Array.isArray(value)) {
+            result[label] = value.filter(Boolean).slice(0, MAX_TEMPLATES_PER_SYMBOL);
+          } else if (value && typeof value === "object") {
+            result[label] = [value];
+          }
+        });
+        return result;
+      };
       return {
-        ranks: parsed.ranks && typeof parsed.ranks === "object" ? parsed.ranks : {},
-        suits: parsed.suits && typeof parsed.suits === "object" ? parsed.suits : {}
+        version: 31,
+        ranks: normalizeGroup(raw.ranks),
+        suits: normalizeGroup(raw.suits)
       };
     } catch (error) {
       console.warn("Could not load recognition templates.", error);
-      return { ranks: {}, suits: {} };
+      return { version: 31, ranks: {}, suits: {} };
     }
   }
 
@@ -106,12 +120,47 @@
     return agreement * 0.35 + iou * 0.65;
   }
 
+  function shiftedBinary(binary, dx, dy) {
+    const { width, height, bits } = binary;
+    const out = new Array(bits.length).fill("0");
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const sx = x - dx;
+        const sy = y - dy;
+        if (sx < 0 || sy < 0 || sx >= width || sy >= height) continue;
+        out[y * width + x] = bits[sy * width + sx];
+      }
+    }
+    return { width, height, bits: out.join("") };
+  }
+
+  function tolerantSimilarity(binary, template) {
+    let best = 0;
+    for (let dy = -2; dy <= 2; dy += 1) {
+      for (let dx = -2; dx <= 2; dx += 1) {
+        best = Math.max(best, binarySimilarity(shiftedBinary(binary, dx, dy), template));
+      }
+    }
+    return best;
+  }
+
   function bestTemplateMatch(binary, templates, allowedLabels) {
     let best = null;
     let second = null;
+
     allowedLabels.forEach((label) => {
-      if (!templates[label]) return;
-      const item = { label, score: binarySimilarity(binary, templates[label]) };
+      const examples = Array.isArray(templates[label]) ? templates[label] : [];
+      if (!examples.length) return;
+
+      const scores = examples.map((template) => tolerantSimilarity(binary, template));
+      scores.sort((a, b) => b - a);
+
+      // Use the strongest example, with a small boost when multiple examples agree.
+      const top = scores[0];
+      const support = scores.length > 1 ? scores.slice(0, 3).reduce((a, b) => a + b, 0) / Math.min(3, scores.length) : top;
+      const score = top * 0.78 + support * 0.22;
+      const item = { label, score, examples: examples.length };
+
       if (!best || item.score > best.score) {
         second = best;
         best = item;
@@ -119,14 +168,82 @@
         second = item;
       }
     });
+
     if (!best) return null;
     const margin = best.score - (second ? second.score : 0);
+    const confidence = Math.max(0, Math.min(1, best.score * 0.74 + margin * 1.9));
     return {
       label: best.label,
       score: best.score,
       margin,
-      confidence: Math.max(0, Math.min(1, best.score * 0.76 + margin * 1.8))
+      examples: best.examples,
+      confidence,
+      accepted: confidence >= MIN_TEMPLATE_CONFIDENCE && margin >= 0.025
     };
+  }
+
+  function addTemplate(group, label, binary) {
+    if (!group[label]) group[label] = [];
+    const duplicate = group[label].some((existing) => tolerantSimilarity(binary, existing) > 0.985);
+    if (duplicate) return { added: false, reason: "duplicate" };
+
+    group[label].push(binary);
+    if (group[label].length > MAX_TEMPLATES_PER_SYMBOL) {
+      group[label].shift();
+    }
+    return { added: true, count: group[label].length };
+  }
+
+  function downloadBlob(filename, content, type) {
+    const blob = new Blob([content], { type });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function exportRecognitionLibrary() {
+    const payload = {
+      format: "freecell-recognition-template-library",
+      version: 31,
+      createdAt: new Date().toISOString(),
+      normalization: { width: 64, height: 80, shiftTolerance: 2 },
+      ranks: recognitionLibrary.ranks,
+      suits: recognitionLibrary.suits
+    };
+    downloadBlob(
+      "freecell-recognition-library-v31.json",
+      JSON.stringify(payload, null, 2),
+      "application/json"
+    );
+    announce("Recognition library exported as JSON.", "success");
+  }
+
+  function importRecognitionLibraryFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result || "{}"));
+        if (parsed.format !== "freecell-recognition-template-library" || parsed.version !== 31) {
+          throw new Error("This is not a v31 recognition-library export.");
+        }
+        recognitionLibrary = {
+          version: 31,
+          ranks: parsed.ranks || {},
+          suits: parsed.suits || {}
+        };
+        saveRecognitionLibrary();
+        refreshAllPredictions();
+        announce("Recognition library imported.", "success");
+      } catch (error) {
+        announce(error.message || "Could not import the recognition library.", "error");
+      }
+    };
+    reader.readAsText(file);
   }
 
   function predictCard(card) {
@@ -145,29 +262,39 @@
   function updateRecognitionLibrarySummary() {
     const summary = byId("scan-recognition-library-summary");
     if (!summary) return;
-    const rankCount = RANK_LABELS.filter((x) => recognitionLibrary.ranks[x]).length;
-    const suitCount = SUIT_LABELS.filter((x) => recognitionLibrary.suits[x]).length;
+
+    const rankLabelsReady = RANK_LABELS.filter((x) => (recognitionLibrary.ranks[x] || []).length >= 3).length;
+    const suitLabelsReady = SUIT_LABELS.filter((x) => (recognitionLibrary.suits[x] || []).length >= 3).length;
+    const rankExamples = RANK_LABELS.reduce((sum, x) => sum + (recognitionLibrary.ranks[x] || []).length, 0);
+    const suitExamples = SUIT_LABELS.reduce((sum, x) => sum + (recognitionLibrary.suits[x] || []).length, 0);
+
+    const counts = [
+      ...RANK_LABELS.map((x) => `${x}:${(recognitionLibrary.ranks[x] || []).length}`),
+      ...SUIT_LABELS.map((x) => `${SUIT_NAMES[x]}:${(recognitionLibrary.suits[x] || []).length}`)
+    ].join(" · ");
+
     summary.innerHTML =
-      `<strong>Template library:</strong> ${rankCount}/13 ranks · ${suitCount}/4 suits` +
-      `<span>${rankCount === 13 && suitCount === 4 ? "Ready for full automatic recognition." : "Save one clean example of each missing symbol."}</span>`;
+      `<strong>Curated library:</strong> ${rankExamples} rank examples · ${suitExamples} suit examples` +
+      `<span>Symbols with at least 3 examples: ${rankLabelsReady}/13 ranks · ${suitLabelsReady}/4 suits</span>` +
+      `<small>${counts}</small>`;
   }
 
   function refreshAllPredictions() {
     recognitionCards.forEach((card) => {
       card.prediction = predictCard(card);
       card.rankPredictionEl.textContent = card.prediction.rank
-        ? `${card.prediction.rank.label} (${Math.round(card.prediction.rank.confidence * 100)}%)`
-        : "needs template";
+        ? `${card.prediction.rank.accepted ? "" : "Review: "}${card.prediction.rank.label} (${Math.round(card.prediction.rank.confidence * 100)}%, ${card.prediction.rank.examples} examples)`
+        : "needs templates";
       card.suitPredictionEl.textContent = card.prediction.suit
-        ? `${SUIT_NAMES[card.prediction.suit.label]} (${Math.round(card.prediction.suit.confidence * 100)}%)`
-        : "needs template";
+        ? `${card.prediction.suit.accepted ? "" : "Review: "}${SUIT_NAMES[card.prediction.suit.label]} (${Math.round(card.prediction.suit.confidence * 100)}%, ${card.prediction.suit.examples} examples)`
+        : "needs templates";
     });
     updateRecognitionLibrarySummary();
   }
 
   function clearRecognitionLibrary() {
     if (!window.confirm("Delete all saved rank and suit templates from this browser?")) return;
-    recognitionLibrary = { ranks: {}, suits: {} };
+    recognitionLibrary = { version: 31, ranks: {}, suits: {} };
     saveRecognitionLibrary();
     refreshAllPredictions();
   }
@@ -728,7 +855,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "fixed-tableau-template-v30",
+          detector: "fixed-tableau-template-v31",
           templateRatios: TEMPLATE,
           tableauTopCorrectionPx: TABLEAU_TOP_CORRECTION_PX,
           tableauRowStepCorrectionPx: TABLEAU_ROW_STEP_CORRECTION_PX,
@@ -1035,10 +1162,14 @@
           announce(`Choose the rank for ${region.id} first.`, "error");
           return;
         }
-        recognitionLibrary.ranks[rankSelect.value] = rankBinary;
+        const result = addTemplate(recognitionLibrary.ranks, rankSelect.value, rankBinary);
+        if (!result.added) {
+          announce(`That ${rankSelect.value} example is already in the library.`, "error");
+          return;
+        }
         saveRecognitionLibrary();
         refreshAllPredictions();
-        announce(`Saved ${rankSelect.value} rank template from ${region.id}.`, "success");
+        announce(`Saved ${rankSelect.value} example ${result.count}/${MAX_TEMPLATES_PER_SYMBOL} from ${region.id}.`, "success");
       });
 
       const allowedSuits = suitMask.colorFamily === "red" ? ["H", "D"] : ["S", "C"];
@@ -1052,10 +1183,14 @@
           announce(`Choose the suit for ${region.id} first.`, "error");
           return;
         }
-        recognitionLibrary.suits[suitSelect.value] = suitBinary;
+        const result = addTemplate(recognitionLibrary.suits, suitSelect.value, suitBinary);
+        if (!result.added) {
+          announce(`That ${SUIT_NAMES[suitSelect.value]} example is already in the library.`, "error");
+          return;
+        }
         saveRecognitionLibrary();
         refreshAllPredictions();
-        announce(`Saved ${SUIT_NAMES[suitSelect.value]} suit template from ${region.id}.`, "success");
+        announce(`Saved ${SUIT_NAMES[suitSelect.value]} example ${result.count}/${MAX_TEMPLATES_PER_SYMBOL} from ${region.id}.`, "success");
       });
 
       trainer.append(rankSelect, saveRank, suitSelect, saveSuit);
@@ -1091,7 +1226,7 @@
   function confirmShape() {
     if (!detection || detection.passCount < 8) return;
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      version: 30,
+      version: 31,
       detector: "opencv-fixed-tableau-template",
       imageName: selectedFile ? selectedFile.name : "board image",
       imageWidth: image.naturalWidth,
@@ -1150,6 +1285,19 @@
   detailsButton.addEventListener("click", showDetails);
   const clearTemplatesButton = byId("scan-clear-recognition-templates");
   if (clearTemplatesButton) clearTemplatesButton.addEventListener("click", clearRecognitionLibrary);
+
+  const exportTemplatesButton = byId("scan-export-recognition-templates");
+  if (exportTemplatesButton) exportTemplatesButton.addEventListener("click", exportRecognitionLibrary);
+
+  const importTemplatesInput = byId("scan-import-recognition-templates");
+  if (importTemplatesInput) {
+    importTemplatesInput.addEventListener("change", () => {
+      const file = importTemplatesInput.files && importTemplatesInput.files[0];
+      if (file) importRecognitionLibraryFile(file);
+      importTemplatesInput.value = "";
+    });
+  }
+
   updateRecognitionLibrarySummary();
   confirmButton.addEventListener("click", confirmShape);
   if (debugSelect) debugSelect.addEventListener("change", renderDebugView);
