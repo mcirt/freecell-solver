@@ -591,3 +591,34 @@ button, textarea, select, a { font: inherit; }
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 }
+
+
+/* v25: show the complete recognition bitmap, never a covered/cropped preview */
+.scan-crop-preview-item {
+  overflow: visible;
+}
+.scan-crop-preview-item canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: auto;
+  object-fit: contain;
+  object-position: center;
+  background: #ffffff;
+  image-rendering: auto;
+}
+.scan-crop-preview-item figcaption {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+.scan-crop-preview-item figcaption strong {
+  font: inherit;
+  font-weight: 800;
+}
+.scan-crop-preview-item figcaption small {
+  font-size: 0.68em;
+  opacity: 0.74;
+  white-space: nowrap;
+}
