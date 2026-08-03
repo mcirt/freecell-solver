@@ -755,3 +755,36 @@ button, textarea, select, a { font: inherit; }
 @media (min-width: 620px) {
   .scan-template-trainer { grid-template-columns: 1fr 1fr; }
 }
+
+
+/* v31 curated multi-example library */
+.scan-recognition-library-summary small {
+  display: block;
+  line-height: 1.55;
+  color: #91b8d0;
+  overflow-wrap: anywhere;
+}
+.scan-library-actions {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.scan-library-actions .scan-secondary,
+.scan-import-label {
+  width: 100%;
+  min-height: 46px;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  text-align: center;
+}
+.scan-import-label {
+  cursor: pointer;
+}
+.scan-import-label input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
