@@ -574,7 +574,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "fixed-tableau-template-v25",
+          detector: "fixed-tableau-template-v26",
           templateRatios: TEMPLATE,
           x: Math.round(original.left),
           y: Math.round(original.top),
@@ -649,19 +649,125 @@
   }
 
   function rankAndSuitRegions(crop) {
+    // The regions overlap slightly on purpose. The 10 is wider than other ranks,
+    // while the suit symbol sometimes begins farther left on different phones.
     return {
       rank: {
         x: crop.x,
         y: crop.y,
-        width: crop.width * 0.58,
-        height: crop.height
+        width: crop.width * 0.63,
+        height: crop.height * 0.96
       },
       suit: {
-        x: crop.x + crop.width * 0.52,
+        x: crop.x + crop.width * 0.50,
         y: crop.y,
-        width: crop.width * 0.48,
-        height: crop.height
+        width: crop.width * 0.50,
+        height: crop.height * 0.96
       }
+    };
+  }
+
+  function cropCanvasFromSource(crop) {
+    const width = Math.max(1, Math.round(crop.width));
+    const height = Math.max(1, Math.round(crop.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(
+      sourceCanvas,
+      Math.round(crop.x),
+      Math.round(crop.y),
+      width,
+      height,
+      0,
+      0,
+      width,
+      height
+    );
+    return canvas;
+  }
+
+  function normalizedSymbolCanvas(source, targetWidth, targetHeight) {
+    const srcCtx = source.getContext("2d", { willReadFrequently: true });
+    const imageData = srcCtx.getImageData(0, 0, source.width, source.height);
+    const data = imageData.data;
+
+    let minX = source.width;
+    let minY = source.height;
+    let maxX = -1;
+    let maxY = -1;
+    let redPixels = 0;
+    let darkPixels = 0;
+
+    for (let y = 0; y < source.height; y += 1) {
+      for (let x = 0; x < source.width; x += 1) {
+        const i = (y * source.width + x) * 4;
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const brightness = (r + g + b) / 3;
+        const red = r > g * 1.28 && r > b * 1.28 && r > 105;
+        const dark = brightness < 132 && Math.max(r, g, b) - Math.min(r, g, b) < 95;
+        const foreground = red || dark;
+
+        data[i] = foreground ? 0 : 255;
+        data[i + 1] = foreground ? 0 : 255;
+        data[i + 2] = foreground ? 0 : 255;
+        data[i + 3] = 255;
+
+        if (foreground) {
+          if (red) redPixels += 1;
+          if (dark) darkPixels += 1;
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+        }
+      }
+    }
+
+    srcCtx.putImageData(imageData, 0, 0);
+
+    const normalized = document.createElement("canvas");
+    normalized.width = targetWidth;
+    normalized.height = targetHeight;
+    const out = normalized.getContext("2d");
+    out.fillStyle = "#fff";
+    out.fillRect(0, 0, targetWidth, targetHeight);
+    out.imageSmoothingEnabled = true;
+    out.imageSmoothingQuality = "high";
+
+    if (maxX >= minX && maxY >= minY) {
+      const contentWidth = maxX - minX + 1;
+      const contentHeight = maxY - minY + 1;
+      const padding = 5;
+      const scale = Math.min(
+        (targetWidth - padding * 2) / contentWidth,
+        (targetHeight - padding * 2) / contentHeight
+      );
+      const drawWidth = contentWidth * scale;
+      const drawHeight = contentHeight * scale;
+      out.drawImage(
+        source,
+        minX,
+        minY,
+        contentWidth,
+        contentHeight,
+        (targetWidth - drawWidth) / 2,
+        (targetHeight - drawHeight) / 2,
+        drawWidth,
+        drawHeight
+      );
+    }
+
+    return {
+      canvas: normalized,
+      foregroundBounds: maxX >= minX ? { minX, minY, maxX, maxY } : null,
+      colorFamily: redPixels > darkPixels * 0.65 ? "red" : "black",
+      redPixels,
+      darkPixels
     };
   }
 
@@ -699,35 +805,88 @@
 
     ensureCanvas();
     detailsGrid.replaceChildren();
+    const recognitionRegions = [];
 
     detection.cardRegions.forEach((region) => {
       const crop = recognitionCropForRegion(region);
-      const figure = document.createElement("figure");
-      figure.className = "scan-crop-preview-item";
+      const rois = rankAndSuitRegions(crop);
 
-      const canvas = makeCropCanvas(crop);
-      canvas.setAttribute("aria-label", `${region.id} rank-and-suit crop`);
+      const article = document.createElement("article");
+      article.className = "scan-recognition-review";
 
-      const caption = document.createElement("figcaption");
-      const size = `${Math.round(crop.width)}×${Math.round(crop.height)} px`;
-      caption.innerHTML = `<strong>${region.id}</strong><small>${size}</small>`;
+      const header = document.createElement("header");
+      header.innerHTML = `<strong>${region.id}</strong><small>${Math.round(crop.width)}×${Math.round(crop.height)} px source</small>`;
 
-      // Save the exact split that the recognizer will use later.
-      figure.dataset.rankSuitRegions = JSON.stringify(rankAndSuitRegions(crop));
+      const original = makeCropCanvas(crop);
+      original.className = "scan-recognition-original";
+      original.setAttribute("aria-label", `${region.id} complete extraction`);
 
-      figure.append(canvas, caption);
-      detailsGrid.appendChild(figure);
+      const rankSource = cropCanvasFromSource(rois.rank);
+      const suitSource = cropCanvasFromSource(rois.suit);
+      const rankMask = normalizedSymbolCanvas(rankSource, 64, 80);
+      const suitMask = normalizedSymbolCanvas(suitSource, 64, 80);
+
+      const rows = document.createElement("div");
+      rows.className = "scan-recognition-rows";
+
+      const originalBox = document.createElement("figure");
+      originalBox.className = "scan-recognition-box scan-recognition-full";
+      originalBox.innerHTML = "<figcaption>Full extraction</figcaption>";
+      originalBox.prepend(original);
+
+      const rankBox = document.createElement("figure");
+      rankBox.className = "scan-recognition-box";
+      rankBox.innerHTML = "<figcaption>Rank ROI</figcaption>";
+      rankBox.prepend(rankSource);
+
+      const suitBox = document.createElement("figure");
+      suitBox.className = "scan-recognition-box";
+      suitBox.innerHTML = "<figcaption>Suit ROI</figcaption>";
+      suitBox.prepend(suitSource);
+
+      const rankMaskBox = document.createElement("figure");
+      rankMaskBox.className = "scan-recognition-box";
+      rankMaskBox.innerHTML = "<figcaption>Rank mask</figcaption>";
+      rankMaskBox.prepend(rankMask.canvas);
+
+      const suitMaskBox = document.createElement("figure");
+      suitMaskBox.className = "scan-recognition-box";
+      suitMaskBox.innerHTML = "<figcaption>Suit mask</figcaption>";
+      suitMaskBox.prepend(suitMask.canvas);
+
+      rows.append(originalBox, rankBox, suitBox, rankMaskBox, suitMaskBox);
+
+      const status = document.createElement("p");
+      status.className = "scan-recognition-status";
+      status.innerHTML =
+        `<span>Suit color family: <strong>${suitMask.colorFamily}</strong></span>` +
+        `<span>Rank prediction: <strong>next build</strong></span>` +
+        `<span>Suit prediction: <strong>next build</strong></span>`;
+
+      article.append(header, rows, status);
+      detailsGrid.appendChild(article);
+
+      recognitionRegions.push({
+        id: region.id,
+        extraction: crop,
+        rank: rois.rank,
+        suit: rois.suit,
+        rankBounds: rankMask.foregroundBounds,
+        suitBounds: suitMask.foregroundBounds,
+        suitColorFamily: suitMask.colorFamily
+      });
     });
 
+    detection.recognitionRegions = recognitionRegions;
     detailsPanel.hidden = false;
     detailsPanel.scrollIntoView({ behavior: "smooth", block: "start" });
-    announce("Showing the 52 upper-left rank-and-suit crops that card recognition will receive.", "success");
+    announce("Showing the full extraction, rank ROI, suit ROI, and normalized masks for all 52 cards.", "success");
   }
 
   function confirmShape() {
     if (!detection || detection.passCount < 8) return;
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      version: 25,
+      version: 26,
       detector: "opencv-fixed-tableau-template",
       imageName: selectedFile ? selectedFile.name : "board image",
       imageWidth: image.naturalWidth,
