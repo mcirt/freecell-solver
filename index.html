@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>FreeCell Solver — Board Input</title>
-  <link rel="stylesheet" href="css/styles.css?v=37">
+  <link rel="stylesheet" href="css/styles.css?v=38">
 </head>
 <body class="input-page">
   <main class="input-shell">
@@ -77,15 +77,43 @@
         <button id="scan-close" class="scan-close" type="button" aria-label="Close scan window">×</button>
       </header>
 
+
+      <section id="scan-camera-panel" class="scan-camera-panel" hidden aria-label="Guided tableau camera">
+        <header class="scan-camera-header">
+          <div>
+            <h3>Guided Tableau Photo</h3>
+            <p>Place the complete tableau inside the four corner brackets. Include all eight columns and the full bottom cards.</p>
+          </div>
+          <button id="scan-stop-camera" class="scan-close" type="button" aria-label="Close camera">×</button>
+        </header>
+        <div id="scan-camera-stage" class="scan-camera-stage">
+          <video id="scan-camera-video" autoplay muted playsinline></video>
+          <div id="scan-camera-guide" class="scan-camera-guide" aria-hidden="true">
+            <span class="guide-corner guide-tl"></span>
+            <span class="guide-corner guide-tr"></span>
+            <span class="guide-corner guide-br"></span>
+            <span class="guide-corner guide-bl"></span>
+            <div class="guide-label">TABLEAU</div>
+          </div>
+        </div>
+        <div id="scan-camera-status" class="scan-camera-status" role="status">Starting rear camera…</div>
+        <div class="scan-camera-actions">
+          <button id="scan-capture-camera" class="scan-primary" type="button" disabled>Capture Tableau</button>
+          <button id="scan-camera-cancel" class="scan-secondary" type="button">Cancel</button>
+        </div>
+      </section>
+
       <div id="scan-picker-panel" class="scan-picker-panel">
         <div class="scan-mode-picker">
           <label for="board-picture-input" class="scan-native-picker-label">Choose Screenshot or Existing Image</label>
           <input id="board-picture-input" class="scan-native-picker" type="file" accept="image/*,.heic,.heif" aria-label="Choose a screenshot or existing image">
 
-          <label for="board-camera-input" class="scan-native-picker-label scan-photo-picker-label">Take Photo of Another Screen</label>
-          <input id="board-camera-input" class="scan-native-picker" type="file" accept="image/*" capture="environment" aria-label="Take a photo of a FreeCell board on another screen">
+          <button id="scan-start-camera" class="scan-native-picker-label scan-photo-picker-label" type="button">Take Guided Photo</button>
 
-          <p class="scan-picker-note">Screenshot mode uses the image directly. Photo mode first detects and straightens the photographed display before running the existing tableau scanner.</p>
+          <label for="board-camera-input" class="scan-native-picker-label scan-photo-fallback-label">Choose Existing Camera Photo</label>
+          <input id="board-camera-input" class="scan-native-picker" type="file" accept="image/*,.heic,.heif" aria-label="Choose an existing camera photo">
+
+          <p class="scan-picker-note">Guided Photo opens an in-page rear-camera preview with tableau brackets. Place the complete 8-column tableau inside the brackets, then capture.</p>
         </div>
       </div>
 
@@ -196,7 +224,7 @@
   <script src="js/opencv-loader.js?v=21"></script>
   <script src="js/input.js?v=35"></script>
   <script src="data/recognition-library-v36.js?v=36"></script>
-  <script src="js/scan.js?v=37"></script>
+  <script src="js/scan.js?v=38"></script>
   <script>
     var require = { baseUrl: "js", urlArgs: "v=20" };
   </script>
