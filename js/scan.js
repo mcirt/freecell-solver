@@ -27,8 +27,9 @@
   const debugText = byId("scan-debug-text");
 
   const SESSION_KEY = "freecellPendingScanV23";
-  const RECOGNITION_LIBRARY_KEY = "freecellRecognitionTemplatesV31";
-  const MAX_TEMPLATES_PER_SYMBOL = 5;
+  const LOCAL_RECOGNITION_LIBRARY_KEY = "freecellRecognitionAdditionsV36";
+  const BUILTIN_RECOGNITION_LIBRARY_VERSION = 36;
+  const MAX_LOCAL_TEMPLATES_PER_SYMBOL = 3;
   const MIN_TEMPLATE_CONFIDENCE = 0.72;
   const RANK_LABELS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
   const SUIT_LABELS = ["S", "C", "H", "D"];
@@ -64,39 +65,88 @@
   let detection = null;
   let cvReady = false;
   let debugFrames = {};
-  let recognitionLibrary = loadRecognitionLibrary();
+  let builtInRecognitionLibrary = loadBuiltInRecognitionLibrary();
+  let localRecognitionLibrary = loadLocalRecognitionLibrary();
+  let recognitionLibrary = mergeRecognitionLibraries(builtInRecognitionLibrary, localRecognitionLibrary);
   let recognitionCards = [];
   let recognizedBoard = [];
   let boardValidation = null;
 
 
-  function loadRecognitionLibrary() {
+  function normalizeRecognitionGroup(group, limit) {
+    const result = {};
+    Object.entries(group || {}).forEach(([label, value]) => {
+      const examples = Array.isArray(value) ? value : (value && typeof value === "object" ? [value] : []);
+      result[label] = examples.filter((example) => {
+        return example && example.width === 64 && example.height === 80 && typeof example.bits === "string";
+      }).slice(0, limit || examples.length);
+    });
+    return result;
+  }
+
+  function emptyRecognitionLibrary() {
+    return { version: BUILTIN_RECOGNITION_LIBRARY_VERSION, ranks: {}, suits: {} };
+  }
+
+  function loadBuiltInRecognitionLibrary() {
     try {
-      const raw = JSON.parse(localStorage.getItem(RECOGNITION_LIBRARY_KEY) || "{}");
-      const normalizeGroup = (group) => {
-        const result = {};
-        Object.entries(group || {}).forEach(([label, value]) => {
-          if (Array.isArray(value)) {
-            result[label] = value.filter(Boolean).slice(0, MAX_TEMPLATES_PER_SYMBOL);
-          } else if (value && typeof value === "object") {
-            result[label] = [value];
-          }
-        });
-        return result;
-      };
+      const raw = window.FREECELL_BUILTIN_RECOGNITION_LIBRARY;
+      if (!raw || raw.format !== "freecell-recognition-template-library") {
+        throw new Error("Built-in recognition library was not loaded.");
+      }
+      if (Number(raw.version) !== BUILTIN_RECOGNITION_LIBRARY_VERSION) {
+        throw new Error(`Built-in recognition library v${raw.version || "?"} is incompatible with v${BUILTIN_RECOGNITION_LIBRARY_VERSION}.`);
+      }
       return {
-        version: 35,
-        ranks: normalizeGroup(raw.ranks),
-        suits: normalizeGroup(raw.suits)
+        version: BUILTIN_RECOGNITION_LIBRARY_VERSION,
+        ranks: normalizeRecognitionGroup(raw.ranks),
+        suits: normalizeRecognitionGroup(raw.suits)
       };
     } catch (error) {
-      console.warn("Could not load recognition templates.", error);
-      return { version: 35, ranks: {}, suits: {} };
+      console.error(error);
+      return emptyRecognitionLibrary();
     }
   }
 
+  function loadLocalRecognitionLibrary() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(LOCAL_RECOGNITION_LIBRARY_KEY) || "{}");
+      return {
+        version: BUILTIN_RECOGNITION_LIBRARY_VERSION,
+        ranks: normalizeRecognitionGroup(raw.ranks, MAX_LOCAL_TEMPLATES_PER_SYMBOL),
+        suits: normalizeRecognitionGroup(raw.suits, MAX_LOCAL_TEMPLATES_PER_SYMBOL)
+      };
+    } catch (error) {
+      console.warn("Could not load locally added recognition templates.", error);
+      return emptyRecognitionLibrary();
+    }
+  }
+
+  function mergeRecognitionGroups(base, additions) {
+    const merged = {};
+    const labels = new Set([...Object.keys(base || {}), ...Object.keys(additions || {})]);
+    labels.forEach((label) => {
+      const examples = [];
+      [...(base[label] || []), ...(additions[label] || [])].forEach((candidate) => {
+        const duplicate = examples.some((existing) => binarySimilarity(candidate, existing) > 0.995);
+        if (!duplicate) examples.push(candidate);
+      });
+      merged[label] = examples;
+    });
+    return merged;
+  }
+
+  function mergeRecognitionLibraries(base, additions) {
+    return {
+      version: BUILTIN_RECOGNITION_LIBRARY_VERSION,
+      ranks: mergeRecognitionGroups(base.ranks, additions.ranks),
+      suits: mergeRecognitionGroups(base.suits, additions.suits)
+    };
+  }
+
   function saveRecognitionLibrary() {
-    localStorage.setItem(RECOGNITION_LIBRARY_KEY, JSON.stringify(recognitionLibrary));
+    localStorage.setItem(LOCAL_RECOGNITION_LIBRARY_KEY, JSON.stringify(localRecognitionLibrary));
+    recognitionLibrary = mergeRecognitionLibraries(builtInRecognitionLibrary, localRecognitionLibrary);
     updateRecognitionLibrarySummary();
   }
 
@@ -193,7 +243,7 @@
     if (duplicate) return { added: false, reason: "duplicate" };
 
     group[label].push(binary);
-    if (group[label].length > MAX_TEMPLATES_PER_SYMBOL) {
+    if (group[label].length > MAX_LOCAL_TEMPLATES_PER_SYMBOL) {
       group[label].shift();
     }
     return { added: true, count: group[label].length };
@@ -213,19 +263,19 @@
 
   function exportRecognitionLibrary() {
     const payload = {
-      format: "freecell-recognition-template-library",
-      version: 35,
+      format: "freecell-recognition-template-additions",
+      version: 36,
       createdAt: new Date().toISOString(),
       normalization: { width: 64, height: 80, shiftTolerance: 2 },
-      ranks: recognitionLibrary.ranks,
-      suits: recognitionLibrary.suits
+      ranks: localRecognitionLibrary.ranks,
+      suits: localRecognitionLibrary.suits
     };
     downloadBlob(
-      "freecell-recognition-library-v31.json",
+      "freecell-recognition-additions-v36.json",
       JSON.stringify(payload, null, 2),
       "application/json"
     );
-    announce("Recognition library exported as JSON.", "success");
+    announce("Your locally added templates were exported.", "success");
   }
 
   function importRecognitionLibraryFile(file) {
@@ -233,21 +283,37 @@
     reader.onload = () => {
       try {
         const parsed = JSON.parse(String(reader.result || "{}"));
-        if (parsed.format !== "freecell-recognition-template-library" || parsed.version !== 31) {
-          throw new Error("This is not a v31 recognition-library export.");
+        const supportedFormat =
+          parsed.format === "freecell-recognition-template-library" ||
+          parsed.format === "freecell-recognition-template-additions";
+        if (!supportedFormat || !parsed.ranks || !parsed.suits) {
+          throw new Error("This file does not contain a compatible recognition library.");
         }
-        recognitionLibrary = {
-          version: 35,
-          ranks: parsed.ranks || {},
-          suits: parsed.suits || {}
-        };
+
+        let addedRanks = 0;
+        let addedSuits = 0;
+        Object.entries(normalizeRecognitionGroup(parsed.ranks)).forEach(([label, examples]) => {
+          examples.forEach((example) => {
+            const result = addTemplate(localRecognitionLibrary.ranks, label, example);
+            if (result.added) addedRanks += 1;
+          });
+        });
+        Object.entries(normalizeRecognitionGroup(parsed.suits)).forEach(([label, examples]) => {
+          examples.forEach((example) => {
+            const result = addTemplate(localRecognitionLibrary.suits, label, example);
+            if (result.added) addedSuits += 1;
+          });
+        });
+
         saveRecognitionLibrary();
         refreshAllPredictions();
-        announce("Recognition library imported.", "success");
+        announce(`Imported ${addedRanks} new rank examples and ${addedSuits} new suit examples. Built-in templates remain active.`, "success");
       } catch (error) {
+        console.error(error);
         announce(error.message || "Could not import the recognition library.", "error");
       }
     };
+    reader.onerror = () => announce("The selected JSON file could not be read.", "error");
     reader.readAsText(file);
   }
 
@@ -264,24 +330,29 @@
     }).join("");
   }
 
+  function countRecognitionExamples(library, labels, groupName) {
+    return labels.reduce((sum, label) => sum + ((library[groupName][label] || []).length), 0);
+  }
+
   function updateRecognitionLibrarySummary() {
     const summary = byId("scan-recognition-library-summary");
     if (!summary) return;
 
-    const rankLabelsReady = RANK_LABELS.filter((x) => (recognitionLibrary.ranks[x] || []).length >= 3).length;
-    const suitLabelsReady = SUIT_LABELS.filter((x) => (recognitionLibrary.suits[x] || []).length >= 3).length;
-    const rankExamples = RANK_LABELS.reduce((sum, x) => sum + (recognitionLibrary.ranks[x] || []).length, 0);
-    const suitExamples = SUIT_LABELS.reduce((sum, x) => sum + (recognitionLibrary.suits[x] || []).length, 0);
+    const builtInRanks = countRecognitionExamples(builtInRecognitionLibrary, RANK_LABELS, "ranks");
+    const builtInSuits = countRecognitionExamples(builtInRecognitionLibrary, SUIT_LABELS, "suits");
+    const localRanks = countRecognitionExamples(localRecognitionLibrary, RANK_LABELS, "ranks");
+    const localSuits = countRecognitionExamples(localRecognitionLibrary, SUIT_LABELS, "suits");
+    const totalRanks = countRecognitionExamples(recognitionLibrary, RANK_LABELS, "ranks");
+    const totalSuits = countRecognitionExamples(recognitionLibrary, SUIT_LABELS, "suits");
 
-    const counts = [
-      ...RANK_LABELS.map((x) => `${x}:${(recognitionLibrary.ranks[x] || []).length}`),
-      ...SUIT_LABELS.map((x) => `${SUIT_NAMES[x]}:${(recognitionLibrary.suits[x] || []).length}`)
-    ].join(" · ");
+    const builtInComplete =
+      RANK_LABELS.every((label) => (builtInRecognitionLibrary.ranks[label] || []).length > 0) &&
+      SUIT_LABELS.every((label) => (builtInRecognitionLibrary.suits[label] || []).length > 0);
 
     summary.innerHTML =
-      `<strong>Curated library:</strong> ${rankExamples} rank examples · ${suitExamples} suit examples` +
-      `<span>Symbols with at least 3 examples: ${rankLabelsReady}/13 ranks · ${suitLabelsReady}/4 suits</span>` +
-      `<small>${counts}</small>`;
+      `<strong>Built-in library v36:</strong> ${builtInRanks} rank examples · ${builtInSuits} suit examples` +
+      `<span>${builtInComplete ? "Ready on this device—no import or training required." : "Built-in library file is missing or incomplete."}</span>` +
+      `<small>My added examples: ${localRanks} ranks · ${localSuits} suits<br>Active total: ${totalRanks} ranks · ${totalSuits} suits</small>`;
   }
 
   function refreshAllPredictions() {
@@ -627,18 +698,19 @@
   }
 
   function clearRecognitionLibrary() {
-    if (!window.confirm("Delete all saved rank and suit templates from this browser?")) return;
-    recognitionLibrary = { version: 35, ranks: {}, suits: {} };
+    if (!window.confirm("Delete your locally added rank and suit templates? The built-in v36 library will remain.")) return;
+    localRecognitionLibrary = emptyRecognitionLibrary();
     saveRecognitionLibrary();
     refreshAllPredictions();
+    announce("Local additions cleared. The built-in v36 library is still active.", "success");
   }
 
   function clearRankTemplates() {
-    if (!window.confirm("Delete only the saved rank templates? Suit templates will be kept.")) return;
-    recognitionLibrary.ranks = {};
+    if (!window.confirm("Delete only your locally added rank templates? Built-in ranks and all suits will remain.")) return;
+    localRecognitionLibrary.ranks = {};
     saveRecognitionLibrary();
     refreshAllPredictions();
-    announce("Saved rank templates cleared. Suit templates were kept.", "success");
+    announce("Local rank additions cleared. Built-in templates were kept.", "success");
   }
 
   function announce(text, kind) {
@@ -1199,7 +1271,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "fixed-tableau-template-v35",
+          detector: "fixed-tableau-template-v36",
           templateRatios: TEMPLATE,
           tableauTopCorrectionPx: TABLEAU_TOP_CORRECTION_PX,
           tableauRowStepCorrectionPx: TABLEAU_ROW_STEP_CORRECTION_PX,
@@ -1859,14 +1931,14 @@
           announce(`Choose the rank for ${region.id} first.`, "error");
           return;
         }
-        const result = addTemplate(recognitionLibrary.ranks, rankSelect.value, rankBinary);
+        const result = addTemplate(localRecognitionLibrary.ranks, rankSelect.value, rankBinary);
         if (!result.added) {
           announce(`That ${rankSelect.value} example is already in the library.`, "error");
           return;
         }
         saveRecognitionLibrary();
         refreshAllPredictions();
-        announce(`Saved ${rankSelect.value} example ${result.count}/${MAX_TEMPLATES_PER_SYMBOL} from ${region.id}.`, "success");
+        announce(`Saved ${rankSelect.value} example ${result.count}/${MAX_LOCAL_TEMPLATES_PER_SYMBOL} from ${region.id}.`, "success");
       });
 
       const allowedSuits = suitMask.colorFamily === "red" ? ["H", "D"] : ["S", "C"];
@@ -1880,14 +1952,14 @@
           announce(`Choose the suit for ${region.id} first.`, "error");
           return;
         }
-        const result = addTemplate(recognitionLibrary.suits, suitSelect.value, suitBinary);
+        const result = addTemplate(localRecognitionLibrary.suits, suitSelect.value, suitBinary);
         if (!result.added) {
           announce(`That ${SUIT_NAMES[suitSelect.value]} example is already in the library.`, "error");
           return;
         }
         saveRecognitionLibrary();
         refreshAllPredictions();
-        announce(`Saved ${SUIT_NAMES[suitSelect.value]} example ${result.count}/${MAX_TEMPLATES_PER_SYMBOL} from ${region.id}.`, "success");
+        announce(`Saved ${SUIT_NAMES[suitSelect.value]} example ${result.count}/${MAX_LOCAL_TEMPLATES_PER_SYMBOL} from ${region.id}.`, "success");
       });
 
       trainer.append(rankSelect, saveRank, suitSelect, saveSuit);
@@ -1925,8 +1997,8 @@
   function confirmShape() {
     if (!detection || detection.passCount < 8) return;
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      version: 35,
-      detector: "opencv-fixed-tableau-template",
+      version: 36,
+      detector: "opencv-fixed-tableau-template-v36",
       imageName: selectedFile ? selectedFile.name : "board image",
       imageWidth: image.naturalWidth,
       imageHeight: image.naturalHeight,
