@@ -136,7 +136,7 @@
         </div>
         <section id="scan-crop-preview-panel" class="scan-crop-preview-panel" hidden aria-label="Card recognition thumbnail preview">
           <h3>52 rank-and-suit thumbnails</h3>
-          <p>These are the exact upper-left crops that the recognition stage will receive. Each crop is intentionally smaller than the full card slot to avoid the next card, face-card artwork, large bottom suit symbols, and the teal background.</p>
+          <p>These are the exact extraction rectangles that the recognition stage will receive. Every thumbnail uses contain-mode display, so the full bitmap is visible with no CSS cropping. The wider v25 crop preserves the complete rank and small suit symbol while remaining inside one card lane.</p>
           <div id="scan-crop-preview-grid" class="scan-crop-preview-grid"></div>
         </section>
       </div>
@@ -147,7 +147,7 @@
   <script src="js/opencv.js?v=21"></script>
   <script src="js/opencv-loader.js?v=21"></script>
   <script src="js/input.js?v=20"></script>
-  <script src="js/scan.js?v=24"></script>
+  <script src="js/scan.js?v=25"></script>
   <script>
     var require = { baseUrl: "js", urlArgs: "v=20" };
   </script>
