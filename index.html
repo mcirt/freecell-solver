@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>FreeCell Solver — Board Input</title>
-  <link rel="stylesheet" href="css/styles.css?v=38">
+  <link rel="stylesheet" href="css/styles.css?v=39">
 </head>
 <body class="input-page">
   <main class="input-shell">
@@ -118,6 +118,35 @@
       </div>
 
       <div id="scan-preview-panel" class="scan-preview-panel" hidden>
+
+        <section id="scan-guided-mask-panel" class="scan-guided-mask-panel" hidden aria-label="Guided photo mask review">
+          <h3>Guided-photo tableau mask</h3>
+          <p>This diagnostic runs only for Take Guided Photo. White should represent the pale card surfaces. Review the mask and candidate before handing the image to the unchanged screenshot scanner.</p>
+
+          <div class="scan-guided-mask-controls">
+            <label>Brightness threshold <output id="scan-guided-brightness-value">116</output><input id="scan-guided-brightness" type="range" min="80" max="190" step="1" value="116"></label>
+            <label>Saturation ceiling <output id="scan-guided-saturation-value">150</output><input id="scan-guided-saturation" type="range" min="70" max="230" step="1" value="150"></label>
+            <label>Cleanup strength <output id="scan-guided-cleanup-value">2.2</output><input id="scan-guided-cleanup" type="range" min="0.8" max="4" step="0.1" value="2.2"></label>
+          </div>
+
+          <div class="scan-guided-mask-grid">
+            <figure><canvas id="scan-guided-original"></canvas><figcaption>Bracket crop</figcaption></figure>
+            <figure><canvas id="scan-guided-strict-mask"></canvas><figcaption>Strict black-and-white card mask</figcaption></figure>
+            <figure><canvas id="scan-guided-clean-mask"></canvas><figcaption>Cleaned card mask</figcaption></figure>
+            <figure><canvas id="scan-guided-connected-mask"></canvas><figcaption>Connected tableau evidence</figcaption></figure>
+            <figure class="scan-guided-wide"><canvas id="scan-guided-candidate-overlay"></canvas><figcaption>Proposed tableau search region</figcaption></figure>
+          </div>
+
+          <pre id="scan-guided-mask-debug" class="scan-guided-mask-debug"></pre>
+          <div id="scan-guided-mask-status" class="scan-guided-mask-status"></div>
+          <div class="scan-guided-mask-actions">
+            <button id="scan-guided-rerun" class="scan-secondary" type="button">Rebuild Mask</button>
+            <button id="scan-guided-use-candidate" class="scan-primary" type="button">Use Candidate in Screenshot Scanner</button>
+            <button id="scan-guided-use-bracket" class="scan-secondary" type="button">Use Full Bracket Crop</button>
+            <button id="scan-guided-retake" class="scan-secondary" type="button">Retake Photo</button>
+          </div>
+        </section>
+
         <section id="scan-photo-panel" class="scan-photo-panel" hidden aria-label="Photo perspective correction">
           <h3>Photo preparation</h3>
           <p>OpenCV looks for the photographed screen boundary. The cyan quadrilateral should follow the four display corners. Tap four corners in order—top-left, top-right, bottom-right, bottom-left—to replace the automatic result.</p>
@@ -224,7 +253,8 @@
   <script src="js/opencv-loader.js?v=21"></script>
   <script src="js/input.js?v=35"></script>
   <script src="data/recognition-library-v36.js?v=36"></script>
-  <script src="js/scan.js?v=38"></script>
+  <script src="js/photo-pipeline.js?v=39"></script>
+  <script src="js/scan.js?v=39"></script>
   <script>
     var require = { baseUrl: "js", urlArgs: "v=20" };
   </script>
