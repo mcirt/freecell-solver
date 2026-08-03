@@ -131,12 +131,12 @@
           <button id="scan-choose-another" class="scan-secondary" type="button">Choose Another</button>
           <button id="scan-reset-calibration" class="scan-secondary" type="button">Reset Calibration</button>
           <button id="scan-detect-tops" class="scan-secondary" type="button">Detect Tableau Shape</button>
-          <button id="scan-preview-crops" class="scan-secondary" type="button">Show 52 Card Thumbnails</button>
+          <button id="scan-preview-crops" class="scan-secondary" type="button">Review 52 Recognition ROIs</button>
           <button id="scan-confirm-crops" class="scan-primary" type="button">Confirm Tableau Shape</button>
         </div>
         <section id="scan-crop-preview-panel" class="scan-crop-preview-panel" hidden aria-label="Card recognition thumbnail preview">
-          <h3>52 rank-and-suit thumbnails</h3>
-          <p>These are the exact extraction rectangles that the recognition stage will receive. Every thumbnail uses contain-mode display, so the full bitmap is visible with no CSS cropping. The wider v25 crop preserves the complete rank and small suit symbol while remaining inside one card lane.</p>
+          <h3>52 recognition ROI reviews</h3>
+          <p>Each card shows the complete extraction, separate rank and suit regions, and normalized black-and-white masks. This verifies exactly what the upcoming rank and suit template matcher will receive.</p>
           <div id="scan-crop-preview-grid" class="scan-crop-preview-grid"></div>
         </section>
       </div>
@@ -147,7 +147,7 @@
   <script src="js/opencv.js?v=21"></script>
   <script src="js/opencv-loader.js?v=21"></script>
   <script src="js/input.js?v=20"></script>
-  <script src="js/scan.js?v=25"></script>
+  <script src="js/scan.js?v=26"></script>
   <script>
     var require = { baseUrl: "js", urlArgs: "v=20" };
   </script>
