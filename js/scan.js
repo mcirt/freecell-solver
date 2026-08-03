@@ -42,6 +42,13 @@
   // this same correction so they remain synchronized.
   const TABLEAU_TOP_CORRECTION_PX = -5;
 
+  // v28 calibration correction:
+  // Increase the generated exposed-row spacing by one source-image pixel.
+  // Row 1 remains anchored at the corrected tableau top, while rows farther
+  // down receive a progressively larger downward adjustment:
+  // row 2 = +1 px, row 3 = +2 px, ... row 7 = +6 px.
+  const TABLEAU_ROW_STEP_CORRECTION_PX = 1;
+
   let selectedFile = null;
   let objectUrl = null;
   let sourceCanvas = null;
@@ -541,6 +548,16 @@
         g.top * inv,
         g.width * inv
       );
+
+      // Keep the fitted width and full-card height, but increase the exposed-row
+      // spacing by one source-image pixel. Recalculate the stepped bottoms so the
+      // cyan outline, 52 card positions, extractions, and debug views all agree.
+      original.rowStep += TABLEAU_ROW_STEP_CORRECTION_PX;
+      original.leftHeight = 6 * original.rowStep + original.fullCardHeight;
+      original.rightHeight = 5 * original.rowStep + original.fullCardHeight;
+      original.bottomLeft = original.top + original.leftHeight;
+      original.bottomRight = original.top + original.rightHeight;
+
       const regions = buildCardRegions(original);
 
       const checks = {
@@ -594,9 +611,10 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "fixed-tableau-template-v27",
+          detector: "fixed-tableau-template-v28",
           templateRatios: TEMPLATE,
           tableauTopCorrectionPx: TABLEAU_TOP_CORRECTION_PX,
+          tableauRowStepCorrectionPx: TABLEAU_ROW_STEP_CORRECTION_PX,
           x: Math.round(original.left),
           y: Math.round(original.top),
           width: Math.round(original.width),
@@ -907,7 +925,7 @@
   function confirmShape() {
     if (!detection || detection.passCount < 8) return;
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      version: 27,
+      version: 28,
       detector: "opencv-fixed-tableau-template",
       imageName: selectedFile ? selectedFile.name : "board image",
       imageWidth: image.naturalWidth,
