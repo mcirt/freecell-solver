@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>FreeCell Solver — Board Input</title>
-  <link rel="stylesheet" href="css/styles.css?v=20">
+  <link rel="stylesheet" href="css/styles.css?v=37">
 </head>
 <body class="input-page">
   <main class="input-shell">
@@ -78,13 +78,33 @@
       </header>
 
       <div id="scan-picker-panel" class="scan-picker-panel">
-        <div class="scan-native-picker-wrap">
-          <label for="board-picture-input" class="scan-native-picker-label">Choose screenshot, photo, or file</label>
-          <input id="board-picture-input" class="scan-native-picker" type="file" accept="image/*,.heic,.heif" aria-label="Choose a screenshot, photo, or image file">
+        <div class="scan-mode-picker">
+          <label for="board-picture-input" class="scan-native-picker-label">Choose Screenshot or Existing Image</label>
+          <input id="board-picture-input" class="scan-native-picker" type="file" accept="image/*,.heic,.heif" aria-label="Choose a screenshot or existing image">
+
+          <label for="board-camera-input" class="scan-native-picker-label scan-photo-picker-label">Take Photo of Another Screen</label>
+          <input id="board-camera-input" class="scan-native-picker" type="file" accept="image/*" capture="environment" aria-label="Take a photo of a FreeCell board on another screen">
+
+          <p class="scan-picker-note">Screenshot mode uses the image directly. Photo mode first detects and straightens the photographed display before running the existing tableau scanner.</p>
         </div>
       </div>
 
       <div id="scan-preview-panel" class="scan-preview-panel" hidden>
+        <section id="scan-photo-panel" class="scan-photo-panel" hidden aria-label="Photo perspective correction">
+          <h3>Photo preparation</h3>
+          <p>OpenCV looks for the photographed screen boundary. The cyan quadrilateral should follow the four display corners. Tap four corners in order—top-left, top-right, bottom-right, bottom-left—to replace the automatic result.</p>
+          <div class="scan-photo-stage">
+            <canvas id="scan-photo-canvas"></canvas>
+          </div>
+          <div id="scan-photo-status" class="scan-photo-status" role="status"></div>
+          <div class="scan-photo-actions">
+            <button id="scan-photo-auto" class="scan-secondary" type="button">Auto Detect Display</button>
+            <button id="scan-photo-reset-points" class="scan-secondary" type="button">Tap Four Corners</button>
+            <button id="scan-photo-use" class="scan-primary" type="button">Straighten and Scan</button>
+            <button id="scan-photo-skip" class="scan-secondary" type="button">Use Original Photo</button>
+          </div>
+        </section>
+
         <p class="scan-help">OpenCV locates the pale tableau region first, then fits the known 7/7/7/7 + 6/6/6/6 FreeCell geometry inside it.</p>
         <div id="opencv-status" class="opencv-status" role="status">Loading OpenCV…</div>
         <div id="scan-stage" class="scan-stage">
@@ -176,7 +196,7 @@
   <script src="js/opencv-loader.js?v=21"></script>
   <script src="js/input.js?v=35"></script>
   <script src="data/recognition-library-v36.js?v=36"></script>
-  <script src="js/scan.js?v=36"></script>
+  <script src="js/scan.js?v=37"></script>
   <script>
     var require = { baseUrl: "js", urlArgs: "v=20" };
   </script>
