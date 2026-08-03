@@ -797,3 +797,109 @@ button, textarea, select, a { font: inherit; }
 .scan-recognition-box canvas {
   background: #fff;
 }
+
+
+/* v34 recognized-board validation */
+.scan-recognized-board-panel {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid rgba(83, 235, 231, 0.72);
+  border-radius: 14px;
+  background: #071d42;
+  color: #eefcff;
+}
+.scan-recognized-board-panel h3,
+.scan-recognized-board-panel h4 {
+  margin-top: 0;
+}
+.scan-board-validation-status {
+  display: grid;
+  gap: 4px;
+  margin: 12px 0;
+  padding: 11px;
+  border-radius: 10px;
+}
+.scan-board-validation-status.valid {
+  border: 1px solid #55e7a4;
+  background: rgba(19, 111, 72, 0.28);
+}
+.scan-board-validation-status.invalid {
+  border: 1px solid #ffbc5c;
+  background: rgba(130, 75, 17, 0.30);
+}
+.scan-board-validation-status strong {
+  font-size: 1.05rem;
+}
+.scan-board-validation-status span {
+  color: #c9e3ef;
+}
+.scan-recognized-board-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  align-items: start;
+  overflow-x: auto;
+}
+.scan-board-column {
+  display: grid;
+  gap: 6px;
+}
+.scan-board-column h4 {
+  margin: 0;
+  text-align: center;
+  color: #65f0e4;
+}
+.scan-recognized-card {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-height: 58px;
+  padding: 7px 5px;
+  border-radius: 9px;
+  color: white;
+  text-align: center;
+  cursor: pointer;
+}
+.scan-recognized-card strong {
+  font-size: 1.12rem;
+}
+.scan-recognized-card small {
+  font-size: 0.68rem;
+  opacity: 0.86;
+}
+.scan-card-good {
+  background: #15724f;
+  border: 1px solid #62f0bb;
+}
+.scan-card-review {
+  background: #8c6518;
+  border: 1px solid #ffd36f;
+}
+.scan-card-bad,
+.scan-card-invalid {
+  background: #8f3039;
+  border: 2px solid #ff8490;
+}
+.scan-card-edited {
+  box-shadow: inset 0 0 0 2px #74eaff;
+}
+.scan-board-validation-issues {
+  margin: 8px 0 14px;
+  padding-left: 20px;
+  color: #d8e8ef;
+}
+.scan-board-actions {
+  display: grid;
+  gap: 8px;
+}
+.scan-board-actions button {
+  width: 100%;
+}
+@media (min-width: 700px) {
+  .scan-recognized-board-grid {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+  .scan-board-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+}
