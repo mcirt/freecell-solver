@@ -622,3 +622,85 @@ button, textarea, select, a { font: inherit; }
   opacity: 0.74;
   white-space: nowrap;
 }
+
+
+/* v26: detailed rank/suit ROI and mask review */
+#scan-crop-preview-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}
+.scan-recognition-review {
+  border: 1px solid rgba(92, 225, 240, 0.78);
+  border-radius: 14px;
+  padding: 10px;
+  background: #061d42;
+  overflow: hidden;
+}
+.scan-recognition-review > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 9px;
+  color: #effcff;
+}
+.scan-recognition-review > header strong {
+  font-size: 1.1rem;
+}
+.scan-recognition-review > header small {
+  color: #b8d8eb;
+}
+.scan-recognition-rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.scan-recognition-box {
+  margin: 0;
+  border: 1px solid rgba(116, 235, 255, 0.58);
+  border-radius: 9px;
+  overflow: hidden;
+  background: #fff;
+}
+.scan-recognition-box canvas {
+  display: block;
+  width: 100%;
+  height: 82px;
+  object-fit: contain;
+  background: #fff;
+}
+.scan-recognition-box figcaption {
+  padding: 5px 6px;
+  background: #0a3264;
+  color: #eafaff;
+  font-size: 0.76rem;
+  font-weight: 750;
+  text-align: center;
+}
+.scan-recognition-full {
+  grid-column: 1 / -1;
+}
+.scan-recognition-full canvas {
+  height: auto;
+  max-height: 125px;
+}
+.scan-recognition-status {
+  display: grid;
+  gap: 4px;
+  margin: 9px 0 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: #04152f;
+  color: #ccecf5;
+  font-size: 0.82rem;
+}
+.scan-recognition-status strong {
+  color: #54f4e7;
+  text-transform: uppercase;
+}
+@media (min-width: 700px) {
+  #scan-crop-preview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
