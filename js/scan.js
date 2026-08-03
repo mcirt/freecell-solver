@@ -80,13 +80,13 @@
         return result;
       };
       return {
-        version: 31,
+        version: 32,
         ranks: normalizeGroup(raw.ranks),
         suits: normalizeGroup(raw.suits)
       };
     } catch (error) {
       console.warn("Could not load recognition templates.", error);
-      return { version: 31, ranks: {}, suits: {} };
+      return { version: 32, ranks: {}, suits: {} };
     }
   }
 
@@ -209,7 +209,7 @@
   function exportRecognitionLibrary() {
     const payload = {
       format: "freecell-recognition-template-library",
-      version: 31,
+      version: 32,
       createdAt: new Date().toISOString(),
       normalization: { width: 64, height: 80, shiftTolerance: 2 },
       ranks: recognitionLibrary.ranks,
@@ -232,7 +232,7 @@
           throw new Error("This is not a v31 recognition-library export.");
         }
         recognitionLibrary = {
-          version: 31,
+          version: 32,
           ranks: parsed.ranks || {},
           suits: parsed.suits || {}
         };
@@ -294,9 +294,17 @@
 
   function clearRecognitionLibrary() {
     if (!window.confirm("Delete all saved rank and suit templates from this browser?")) return;
-    recognitionLibrary = { version: 31, ranks: {}, suits: {} };
+    recognitionLibrary = { version: 32, ranks: {}, suits: {} };
     saveRecognitionLibrary();
     refreshAllPredictions();
+  }
+
+  function clearRankTemplates() {
+    if (!window.confirm("Delete only the saved rank templates? Suit templates will be kept.")) return;
+    recognitionLibrary.ranks = {};
+    saveRecognitionLibrary();
+    refreshAllPredictions();
+    announce("Saved rank templates cleared. Suit templates were kept.", "success");
   }
 
   function announce(text, kind) {
@@ -855,7 +863,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "fixed-tableau-template-v31",
+          detector: "fixed-tableau-template-v32",
           templateRatios: TEMPLATE,
           tableauTopCorrectionPx: TABLEAU_TOP_CORRECTION_PX,
           tableauRowStepCorrectionPx: TABLEAU_ROW_STEP_CORRECTION_PX,
@@ -972,15 +980,240 @@
     return canvas;
   }
 
-  function normalizedSymbolCanvas(source, targetWidth, targetHeight) {
-    const srcCtx = source.getContext("2d", { willReadFrequently: true });
-    const imageData = srcCtx.getImageData(0, 0, source.width, source.height);
-    const data = imageData.data;
+  function cloneCanvas(source) {
+    const copy = document.createElement("canvas");
+    copy.width = source.width;
+    copy.height = source.height;
+    const ctx = copy.getContext("2d");
+    ctx.drawImage(source, 0, 0);
+    return copy;
+  }
 
+  function binaryComponents(binary, width, height) {
+    const visited = new Uint8Array(binary.length);
+    const components = [];
+    const neighbors = [
+      [-1, -1], [0, -1], [1, -1],
+      [-1, 0],            [1, 0],
+      [-1, 1],  [0, 1],   [1, 1]
+    ];
+
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const startIndex = y * width + x;
+        if (!binary[startIndex] || visited[startIndex]) continue;
+
+        const stack = [startIndex];
+        visited[startIndex] = 1;
+        const pixels = [];
+        let minX = x;
+        let maxX = x;
+        let minY = y;
+        let maxY = y;
+
+        while (stack.length) {
+          const index = stack.pop();
+          const px = index % width;
+          const py = Math.floor(index / width);
+          pixels.push(index);
+          minX = Math.min(minX, px);
+          maxX = Math.max(maxX, px);
+          minY = Math.min(minY, py);
+          maxY = Math.max(maxY, py);
+
+          neighbors.forEach(([dx, dy]) => {
+            const nx = px + dx;
+            const ny = py + dy;
+            if (nx < 0 || ny < 0 || nx >= width || ny >= height) return;
+            const ni = ny * width + nx;
+            if (!binary[ni] || visited[ni]) return;
+            visited[ni] = 1;
+            stack.push(ni);
+          });
+        }
+
+        components.push({
+          pixels,
+          area: pixels.length,
+          minX,
+          maxX,
+          minY,
+          maxY,
+          width: maxX - minX + 1,
+          height: maxY - minY + 1,
+          touchesLeft: minX <= 2,
+          touchesRight: maxX >= width - 3,
+          touchesTop: minY <= 1,
+          touchesBottom: maxY >= height - 2
+        });
+      }
+    }
+
+    return components;
+  }
+
+  function cleanRankBinary(binary, width, height) {
+    const components = binaryComponents(binary, width, height);
+    if (!components.length) return { binary, removed: [], kept: [] };
+
+    const largestArea = Math.max(...components.map((c) => c.area));
+    const removed = [];
+
+    // First remove the vertical card boundary and obvious dust.
+    const candidates = components.filter((component) => {
+      const narrowLeftBoundary =
+        component.touchesLeft &&
+        component.width <= Math.max(5, width * 0.10) &&
+        component.height >= height * 0.48;
+
+      const tinySpeck =
+        component.area < Math.max(12, largestArea * 0.025) ||
+        (component.width <= 3 && component.height <= 7);
+
+      if (narrowLeftBoundary || tinySpeck) {
+        removed.push(component);
+        return false;
+      }
+      return true;
+    });
+
+    if (!candidates.length) return { binary, removed, kept: components };
+
+    const candidateLargest = Math.max(...candidates.map((c) => c.area));
+
+    // Keep the primary rank component and, when meaningful, a second component.
+    // This preserves both characters of "10" without retaining random marks.
+    const meaningful = candidates
+      .filter((component) => {
+        const substantialArea = component.area >= Math.max(18, candidateLargest * 0.10);
+        const substantialHeight = component.height >= height * 0.24;
+        return substantialArea && substantialHeight;
+      })
+      .sort((a, b) => b.area - a.area);
+
+    const kept = meaningful.slice(0, 2);
+
+    // A second component is only accepted when it sits on the same text line
+    // and is reasonably close to the primary component.
+    if (kept.length === 2) {
+      const [first, second] = kept;
+      const left = first.minX < second.minX ? first : second;
+      const right = left === first ? second : first;
+      const verticalOverlap =
+        Math.max(0, Math.min(left.maxY, right.maxY) - Math.max(left.minY, right.minY) + 1) /
+        Math.max(1, Math.min(left.height, right.height));
+      const horizontalGap = right.minX - left.maxX - 1;
+      const plausiblePair =
+        verticalOverlap >= 0.48 &&
+        horizontalGap <= width * 0.22 &&
+        right.area >= candidateLargest * 0.10;
+
+      if (!plausiblePair) {
+        removed.push(kept.pop());
+      }
+    }
+
+    // If filtering was too strict, retain the largest non-boundary component.
+    if (!kept.length) kept.push(candidates.sort((a, b) => b.area - a.area)[0]);
+
+    const cleaned = new Uint8Array(binary.length);
+    kept.forEach((component) => {
+      component.pixels.forEach((index) => {
+        cleaned[index] = 1;
+      });
+    });
+
+    candidates.forEach((component) => {
+      if (!kept.includes(component)) removed.push(component);
+    });
+
+    return { binary: cleaned, removed, kept };
+  }
+
+  function binaryToCanvas(binary, width, height) {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    const imageData = ctx.createImageData(width, height);
+
+    for (let i = 0; i < binary.length; i += 1) {
+      const value = binary[i] ? 0 : 255;
+      const offset = i * 4;
+      imageData.data[offset] = value;
+      imageData.data[offset + 1] = value;
+      imageData.data[offset + 2] = value;
+      imageData.data[offset + 3] = 255;
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+    return canvas;
+  }
+
+  function normalizeBinaryCanvas(source, binary, targetWidth, targetHeight) {
     let minX = source.width;
     let minY = source.height;
     let maxX = -1;
     let maxY = -1;
+
+    for (let y = 0; y < source.height; y += 1) {
+      for (let x = 0; x < source.width; x += 1) {
+        if (!binary[y * source.width + x]) continue;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+
+    const normalized = document.createElement("canvas");
+    normalized.width = targetWidth;
+    normalized.height = targetHeight;
+    const out = normalized.getContext("2d");
+    out.fillStyle = "#fff";
+    out.fillRect(0, 0, targetWidth, targetHeight);
+    out.imageSmoothingEnabled = true;
+    out.imageSmoothingQuality = "high";
+
+    const cleanedSource = binaryToCanvas(binary, source.width, source.height);
+
+    if (maxX >= minX && maxY >= minY) {
+      const contentWidth = maxX - minX + 1;
+      const contentHeight = maxY - minY + 1;
+      const padding = 5;
+      const scale = Math.min(
+        (targetWidth - padding * 2) / contentWidth,
+        (targetHeight - padding * 2) / contentHeight
+      );
+      const drawWidth = contentWidth * scale;
+      const drawHeight = contentHeight * scale;
+
+      out.drawImage(
+        cleanedSource,
+        minX,
+        minY,
+        contentWidth,
+        contentHeight,
+        (targetWidth - drawWidth) / 2,
+        (targetHeight - drawHeight) / 2,
+        drawWidth,
+        drawHeight
+      );
+    }
+
+    return {
+      canvas: normalized,
+      sourceCanvas: cleanedSource,
+      foregroundBounds: maxX >= minX ? { minX, minY, maxX, maxY } : null
+    };
+  }
+
+  function normalizedSymbolCanvas(source, targetWidth, targetHeight, options = {}) {
+    const srcCtx = source.getContext("2d", { willReadFrequently: true });
+    const imageData = srcCtx.getImageData(0, 0, source.width, source.height);
+    const data = imageData.data;
+    const binary = new Uint8Array(source.width * source.height);
+
     let redPixels = 0;
     let darkPixels = 0;
 
@@ -995,62 +1228,34 @@
         const dark = brightness < 132 && Math.max(r, g, b) - Math.min(r, g, b) < 95;
         const foreground = red || dark;
 
-        data[i] = foreground ? 0 : 255;
-        data[i + 1] = foreground ? 0 : 255;
-        data[i + 2] = foreground ? 0 : 255;
-        data[i + 3] = 255;
-
-        if (foreground) {
-          if (red) redPixels += 1;
-          if (dark) darkPixels += 1;
-          minX = Math.min(minX, x);
-          minY = Math.min(minY, y);
-          maxX = Math.max(maxX, x);
-          maxY = Math.max(maxY, y);
-        }
+        binary[y * source.width + x] = foreground ? 1 : 0;
+        if (red) redPixels += 1;
+        if (dark) darkPixels += 1;
       }
     }
 
-    srcCtx.putImageData(imageData, 0, 0);
+    const rawMaskCanvas = binaryToCanvas(binary, source.width, source.height);
+    const cleanup = options.role === "rank"
+      ? cleanRankBinary(binary, source.width, source.height)
+      : { binary, removed: [], kept: [] };
 
-    const normalized = document.createElement("canvas");
-    normalized.width = targetWidth;
-    normalized.height = targetHeight;
-    const out = normalized.getContext("2d");
-    out.fillStyle = "#fff";
-    out.fillRect(0, 0, targetWidth, targetHeight);
-    out.imageSmoothingEnabled = true;
-    out.imageSmoothingQuality = "high";
-
-    if (maxX >= minX && maxY >= minY) {
-      const contentWidth = maxX - minX + 1;
-      const contentHeight = maxY - minY + 1;
-      const padding = 5;
-      const scale = Math.min(
-        (targetWidth - padding * 2) / contentWidth,
-        (targetHeight - padding * 2) / contentHeight
-      );
-      const drawWidth = contentWidth * scale;
-      const drawHeight = contentHeight * scale;
-      out.drawImage(
-        source,
-        minX,
-        minY,
-        contentWidth,
-        contentHeight,
-        (targetWidth - drawWidth) / 2,
-        (targetHeight - drawHeight) / 2,
-        drawWidth,
-        drawHeight
-      );
-    }
+    const normalized = normalizeBinaryCanvas(
+      source,
+      cleanup.binary,
+      targetWidth,
+      targetHeight
+    );
 
     return {
-      canvas: normalized,
-      foregroundBounds: maxX >= minX ? { minX, minY, maxX, maxY } : null,
+      canvas: normalized.canvas,
+      rawMaskCanvas,
+      cleanedSourceCanvas: normalized.sourceCanvas,
+      foregroundBounds: normalized.foregroundBounds,
       colorFamily: redPixels > darkPixels * 0.65 ? "red" : "black",
       redPixels,
-      darkPixels
+      darkPixels,
+      removedComponents: cleanup.removed.length,
+      keptComponents: cleanup.kept.length
     };
   }
 
@@ -1106,8 +1311,8 @@
 
       const rankSource = cropCanvasFromSource(rois.rank);
       const suitSource = cropCanvasFromSource(rois.suit);
-      const rankMask = normalizedSymbolCanvas(rankSource, 64, 80);
-      const suitMask = normalizedSymbolCanvas(suitSource, 64, 80);
+      const rankMask = normalizedSymbolCanvas(rankSource, 64, 80, { role: "rank" });
+      const suitMask = normalizedSymbolCanvas(suitSource, 64, 80, { role: "suit" });
       const rankBinary = canvasToBinary(rankMask.canvas);
       const suitBinary = canvasToBinary(suitMask.canvas);
 
@@ -1127,7 +1332,9 @@
         box(original, "Full extraction", "scan-recognition-full"),
         box(rankSource, "Rank ROI"),
         box(suitSource, "Suit ROI"),
-        box(rankMask.canvas, "Rank mask"),
+        box(rankMask.rawMaskCanvas, "Raw rank mask"),
+        box(rankMask.cleanedSourceCanvas, `Cleaned rank mask · removed ${rankMask.removedComponents}`),
+        box(rankMask.canvas, "Normalized rank mask"),
         box(suitMask.canvas, "Suit mask")
       );
 
@@ -1226,7 +1433,7 @@
   function confirmShape() {
     if (!detection || detection.passCount < 8) return;
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      version: 31,
+      version: 32,
       detector: "opencv-fixed-tableau-template",
       imageName: selectedFile ? selectedFile.name : "board image",
       imageWidth: image.naturalWidth,
@@ -1285,6 +1492,9 @@
   detailsButton.addEventListener("click", showDetails);
   const clearTemplatesButton = byId("scan-clear-recognition-templates");
   if (clearTemplatesButton) clearTemplatesButton.addEventListener("click", clearRecognitionLibrary);
+
+  const clearRankTemplatesButton = byId("scan-clear-rank-templates");
+  if (clearRankTemplatesButton) clearRankTemplatesButton.addEventListener("click", clearRankTemplates);
 
   const exportTemplatesButton = byId("scan-export-recognition-templates");
   if (exportTemplatesButton) exportTemplatesButton.addEventListener("click", exportRecognitionLibrary);
