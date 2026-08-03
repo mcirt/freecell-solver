@@ -20,6 +20,24 @@
   const cameraCaptureButton = byId("scan-capture-camera");
   const cameraStopButton = byId("scan-stop-camera");
   const cameraCancelButton = byId("scan-camera-cancel");
+  const guidedMaskPanel = byId("scan-guided-mask-panel");
+  const guidedOriginalCanvas = byId("scan-guided-original");
+  const guidedStrictCanvas = byId("scan-guided-strict-mask");
+  const guidedCleanCanvas = byId("scan-guided-clean-mask");
+  const guidedConnectedCanvas = byId("scan-guided-connected-mask");
+  const guidedOverlayCanvas = byId("scan-guided-candidate-overlay");
+  const guidedMaskDebug = byId("scan-guided-mask-debug");
+  const guidedMaskStatus = byId("scan-guided-mask-status");
+  const guidedBrightness = byId("scan-guided-brightness");
+  const guidedBrightnessValue = byId("scan-guided-brightness-value");
+  const guidedSaturation = byId("scan-guided-saturation");
+  const guidedSaturationValue = byId("scan-guided-saturation-value");
+  const guidedCleanup = byId("scan-guided-cleanup");
+  const guidedCleanupValue = byId("scan-guided-cleanup-value");
+  const guidedRerunButton = byId("scan-guided-rerun");
+  const guidedUseCandidateButton = byId("scan-guided-use-candidate");
+  const guidedUseBracketButton = byId("scan-guided-use-bracket");
+  const guidedRetakeButton = byId("scan-guided-retake");
   const photoPanel = byId("scan-photo-panel");
   const photoCanvas = byId("scan-photo-canvas");
   const photoStatus = byId("scan-photo-status");
@@ -78,6 +96,8 @@
   let selectedFile = null;
   let selectedInputMode = "screenshot";
   let cameraStream = null;
+  let guidedBracketCanvas = null;
+  let guidedMaskAnalysis = null;
   let originalPhotoCanvas = null;
   let photoCorners = [];
   let photoCornerInputActive = false;
@@ -285,7 +305,7 @@
   function exportRecognitionLibrary() {
     const payload = {
       format: "freecell-recognition-template-additions",
-      version: 38,
+      version: 39,
       createdAt: new Date().toISOString(),
       normalization: { width: 64, height: 80, shiftTolerance: 2 },
       ranks: localRecognitionLibrary.ranks,
@@ -748,6 +768,90 @@
 
 
 
+
+  function copyCanvas(source, target) {
+    if (!source || !target) return;
+    target.width = source.width;
+    target.height = source.height;
+    const ctx = target.getContext("2d", { alpha: false });
+    ctx.clearRect(0, 0, target.width, target.height);
+    ctx.drawImage(source, 0, 0);
+  }
+
+  function setGuidedMaskStatus(text, kind) {
+    if (!guidedMaskStatus) return;
+    guidedMaskStatus.textContent = text;
+    guidedMaskStatus.className = "scan-guided-mask-status" + (kind ? ` ${kind}` : "");
+  }
+
+  function guidedMaskOptions() {
+    const brightness = Number(guidedBrightness ? guidedBrightness.value : 116);
+    const saturation = Number(guidedSaturation ? guidedSaturation.value : 150);
+    const cleanup = Number(guidedCleanup ? guidedCleanup.value : 2.2);
+    if (guidedBrightnessValue) guidedBrightnessValue.textContent = String(brightness);
+    if (guidedSaturationValue) guidedSaturationValue.textContent = String(saturation);
+    if (guidedCleanupValue) guidedCleanupValue.textContent = cleanup.toFixed(1);
+    return { brightness, saturation, cleanup };
+  }
+
+  function runGuidedMaskAnalysis() {
+    if (!guidedBracketCanvas || !window.GuidedPhotoPipeline || !cvReady) {
+      setGuidedMaskStatus("The guided photo or OpenCV is not ready.", "warning");
+      return;
+    }
+    try {
+      setGuidedMaskStatus("Building the isolated card-surface mask…", "");
+      guidedMaskAnalysis = window.GuidedPhotoPipeline.analyze(guidedBracketCanvas, guidedMaskOptions());
+      copyCanvas(guidedBracketCanvas, guidedOriginalCanvas);
+      copyCanvas(guidedMaskAnalysis.strictCanvas, guidedStrictCanvas);
+      copyCanvas(guidedMaskAnalysis.cleanCanvas, guidedCleanCanvas);
+      copyCanvas(guidedMaskAnalysis.connectedCanvas, guidedConnectedCanvas);
+      copyCanvas(guidedMaskAnalysis.overlayCanvas, guidedOverlayCanvas);
+      if (guidedMaskDebug) guidedMaskDebug.textContent = JSON.stringify(guidedMaskAnalysis.diagnostics, null, 2);
+      if (guidedUseCandidateButton) guidedUseCandidateButton.disabled = !guidedMaskAnalysis.candidateCanvas;
+      if (guidedMaskAnalysis.candidateCanvas) {
+        setGuidedMaskStatus("A wide tableau-like card region was found. Review the white mask and cyan candidate before continuing.", "ready");
+      } else {
+        setGuidedMaskStatus("No convincing tableau candidate was found. Adjust the thresholds or use the full bracket crop.", "warning");
+      }
+    } catch (error) {
+      console.error(error);
+      setGuidedMaskStatus(`Mask analysis failed: ${error.message || error}`, "warning");
+    }
+  }
+
+  function handGuidedCanvasToScreenshotScanner(canvas, description) {
+    if (!canvas) return;
+    sourceCanvas = canvas;
+    if (guidedMaskPanel) guidedMaskPanel.hidden = true;
+    image.onload = () => {
+      sourceCanvas = canvas;
+      clearDetection();
+      updateCvStatus(`${description} Handing it to the unchanged screenshot scanner…`, "working");
+      if (cvReady) window.setTimeout(detectTableauShape, 40);
+    };
+    image.src = canvas.toDataURL("image/jpeg", 0.96);
+  }
+
+  function useGuidedMaskCandidate() {
+    if (!guidedMaskAnalysis || !guidedMaskAnalysis.candidateCanvas) {
+      setGuidedMaskStatus("No candidate is available. Rebuild the mask or use the full bracket crop.", "warning");
+      return;
+    }
+    handGuidedCanvasToScreenshotScanner(guidedMaskAnalysis.candidateCanvas, "Mask candidate selected.");
+  }
+
+  function useGuidedBracketCrop() {
+    handGuidedCanvasToScreenshotScanner(guidedBracketCanvas, "Full bracket crop selected.");
+  }
+
+  function retakeGuidedPhoto() {
+    guidedMaskAnalysis = null;
+    guidedBracketCanvas = null;
+    if (guidedMaskPanel) guidedMaskPanel.hidden = true;
+    startGuidedCamera();
+  }
+
   function setCameraStatus(text, kind) {
     if (!cameraStatus) return;
     cameraStatus.textContent = text;
@@ -841,21 +945,15 @@
     stopGuidedCamera({ showPicker: false });
     selectedInputMode = "guided-camera";
     selectedFile = null;
-    sourceCanvas = captured;
+    guidedBracketCanvas = captured;
+    guidedMaskAnalysis = null;
     pickerPanel.hidden = true;
     previewPanel.hidden = false;
     if (photoPanel) photoPanel.hidden = true;
-
-    image.onload = () => {
-      sourceCanvas = captured;
-      clearDetection();
-      updateCvStatus(
-        cvReady ? "Guided photo captured. Fitting the known tableau template inside the bracket crop…" : "Guided photo captured. Waiting for OpenCV…",
-        "working"
-      );
-      if (cvReady) window.setTimeout(detectTableauShape, 40);
-    };
-    image.src = captured.toDataURL("image/jpeg", 0.96);
+    if (guidedMaskPanel) guidedMaskPanel.hidden = false;
+    if (detailsPanel) detailsPanel.hidden = true;
+    updateCvStatus("Guided photo captured. Running the separate photo-only black-and-white mask diagnostic…", "working");
+    window.setTimeout(runGuidedMaskAnalysis, 40);
   }
 
   function setPhotoStatus(text, kind) {
@@ -1193,6 +1291,9 @@
     selectedInputMode = "screenshot";
     sourceCanvas = null;
     originalPhotoCanvas = null;
+    guidedBracketCanvas = null;
+    guidedMaskAnalysis = null;
+    if (guidedMaskPanel) guidedMaskPanel.hidden = true;
     photoCorners = [];
     photoCornerInputActive = false;
     if (photoPanel) photoPanel.hidden = true;
@@ -2419,7 +2520,7 @@
   function confirmShape() {
     if (!detection || detection.passCount < 8) return;
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      version: 38,
+      version: 39,
       detector: "opencv-fixed-tableau-template-v38",
       imageName: selectedFile ? selectedFile.name : "board image",
       imageWidth: image.naturalWidth,
@@ -2486,6 +2587,15 @@
   closeButton.addEventListener("click", () => setDialogOpen(false));
   dialog.querySelectorAll("[data-scan-cancel]")
     .forEach((node) => node.addEventListener("click", () => setDialogOpen(false)));
+  if (guidedRerunButton) guidedRerunButton.addEventListener("click", runGuidedMaskAnalysis);
+  if (guidedUseCandidateButton) guidedUseCandidateButton.addEventListener("click", useGuidedMaskCandidate);
+  if (guidedUseBracketButton) guidedUseBracketButton.addEventListener("click", useGuidedBracketCrop);
+  if (guidedRetakeButton) guidedRetakeButton.addEventListener("click", retakeGuidedPhoto);
+  [guidedBrightness, guidedSaturation, guidedCleanup].forEach((input) => {
+    if (!input) return;
+    input.addEventListener("input", guidedMaskOptions);
+  });
+
   if (startCameraButton) startCameraButton.addEventListener("click", startGuidedCamera);
   if (cameraCaptureButton) cameraCaptureButton.addEventListener("click", captureGuidedTableau);
   if (cameraStopButton) cameraStopButton.addEventListener("click", () => stopGuidedCamera({ showPicker: true }));
