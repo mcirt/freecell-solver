@@ -788,3 +788,12 @@ button, textarea, select, a { font: inherit; }
   opacity: 0;
   pointer-events: none;
 }
+
+
+/* v32 rank-mask cleanup inspection */
+.scan-recognition-rows {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.scan-recognition-box canvas {
+  background: #fff;
+}
