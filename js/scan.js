@@ -36,6 +36,12 @@
     cropHeightToRowStep: 0.78
   });
 
+  // v27 calibration correction:
+  // Move the complete fitted tableau geometry upward by five source-image pixels.
+  // All 52 card positions, recognition crops, overlays, and debug views inherit
+  // this same correction so they remain synchronized.
+  const TABLEAU_TOP_CORRECTION_PX = -5;
+
   let selectedFile = null;
   let objectUrl = null;
   let sourceCanvas = null;
@@ -517,10 +523,24 @@
       mask = makeStrictCardMask(rgb);
 
       const fit = fitTemplate(mask);
-      const g = fit.best.geometry;
+      const fittedGeometry = fit.best.geometry;
       const m = fit.best.metrics;
       const inv = 1 / scale;
-      const original = templateGeometry(g.left * inv, g.top * inv, g.width * inv);
+
+      // Apply the requested five-pixel upward correction to the entire template.
+      // Convert it into resized-image coordinates first, then rebuild both the
+      // small and original geometries from the corrected top.
+      const correctedSmall = templateGeometry(
+        fittedGeometry.left,
+        fittedGeometry.top + TABLEAU_TOP_CORRECTION_PX * scale,
+        fittedGeometry.width
+      );
+      const g = correctedSmall;
+      const original = templateGeometry(
+        g.left * inv,
+        g.top * inv,
+        g.width * inv
+      );
       const regions = buildCardRegions(original);
 
       const checks = {
@@ -574,8 +594,9 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "fixed-tableau-template-v26",
+          detector: "fixed-tableau-template-v27",
           templateRatios: TEMPLATE,
+          tableauTopCorrectionPx: TABLEAU_TOP_CORRECTION_PX,
           x: Math.round(original.left),
           y: Math.round(original.top),
           width: Math.round(original.width),
@@ -886,7 +907,7 @@
   function confirmShape() {
     if (!detection || detection.passCount < 8) return;
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      version: 26,
+      version: 27,
       detector: "opencv-fixed-tableau-template",
       imageName: selectedFile ? selectedFile.name : "board image",
       imageWidth: image.naturalWidth,
