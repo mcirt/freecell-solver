@@ -903,3 +903,76 @@ button, textarea, select, a { font: inherit; }
     grid-template-columns: 1fr 1fr;
   }
 }
+
+
+/* v37 photo perspective-correction workflow */
+.scan-mode-picker {
+  display: grid;
+  gap: 12px;
+}
+.scan-photo-picker-label {
+  background: #6a3ec7;
+}
+.scan-picker-note {
+  margin: 2px 0 0;
+  color: #b9d4e8;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+.scan-photo-panel {
+  margin-bottom: 14px;
+  padding: 13px;
+  border: 1px solid rgba(112, 235, 241, 0.72);
+  border-radius: 14px;
+  background: #061c3e;
+  color: #eefcff;
+}
+.scan-photo-panel h3 {
+  margin: 0 0 6px;
+}
+.scan-photo-panel p {
+  color: #c2dce9;
+}
+.scan-photo-stage {
+  max-height: 58vh;
+  overflow: auto;
+  border: 1px solid rgba(115, 221, 234, 0.55);
+  border-radius: 10px;
+  background: #020b18;
+}
+#scan-photo-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  touch-action: manipulation;
+}
+.scan-photo-status {
+  min-height: 42px;
+  margin: 10px 0;
+  padding: 9px;
+  border-radius: 8px;
+  background: #04142e;
+  color: #ccecf5;
+}
+.scan-photo-status.ready {
+  border: 1px solid #54e4a2;
+}
+.scan-photo-status.warning {
+  border: 1px solid #ffbb64;
+}
+.scan-photo-status.working {
+  border: 1px solid #68ddea;
+}
+.scan-photo-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+.scan-photo-actions button {
+  width: 100%;
+}
+@media (min-width: 700px) {
+  .scan-photo-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
