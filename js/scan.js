@@ -80,13 +80,13 @@
         return result;
       };
       return {
-        version: 32,
+        version: 33,
         ranks: normalizeGroup(raw.ranks),
         suits: normalizeGroup(raw.suits)
       };
     } catch (error) {
       console.warn("Could not load recognition templates.", error);
-      return { version: 32, ranks: {}, suits: {} };
+      return { version: 33, ranks: {}, suits: {} };
     }
   }
 
@@ -209,7 +209,7 @@
   function exportRecognitionLibrary() {
     const payload = {
       format: "freecell-recognition-template-library",
-      version: 32,
+      version: 33,
       createdAt: new Date().toISOString(),
       normalization: { width: 64, height: 80, shiftTolerance: 2 },
       ranks: recognitionLibrary.ranks,
@@ -232,7 +232,7 @@
           throw new Error("This is not a v31 recognition-library export.");
         }
         recognitionLibrary = {
-          version: 32,
+          version: 33,
           ranks: parsed.ranks || {},
           suits: parsed.suits || {}
         };
@@ -294,7 +294,7 @@
 
   function clearRecognitionLibrary() {
     if (!window.confirm("Delete all saved rank and suit templates from this browser?")) return;
-    recognitionLibrary = { version: 32, ranks: {}, suits: {} };
+    recognitionLibrary = { version: 33, ranks: {}, suits: {} };
     saveRecognitionLibrary();
     refreshAllPredictions();
   }
@@ -863,7 +863,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "fixed-tableau-template-v32",
+          detector: "fixed-tableau-template-v33",
           templateRatios: TEMPLATE,
           tableauTopCorrectionPx: TABLEAU_TOP_CORRECTION_PX,
           tableauRowStepCorrectionPx: TABLEAU_ROW_STEP_CORRECTION_PX,
@@ -1052,82 +1052,223 @@
     return components;
   }
 
-  function cleanRankBinary(binary, width, height) {
+  function componentCenter(component) {
+    return {
+      x: (component.minX + component.maxX) / 2,
+      y: (component.minY + component.maxY) / 2
+    };
+  }
+
+  function componentMask(components, length) {
+    const mask = new Uint8Array(length);
+    components.forEach((component) => {
+      component.pixels.forEach((index) => {
+        mask[index] = 1;
+      });
+    });
+    return mask;
+  }
+
+  function selectRankComponents(binary, width, height) {
     const components = binaryComponents(binary, width, height);
-    if (!components.length) return { binary, removed: [], kept: [] };
+    if (!components.length) {
+      return { binary, kept: [], removed: [], reasons: new Map() };
+    }
 
-    const largestArea = Math.max(...components.map((c) => c.area));
-    const removed = [];
+    const reasons = new Map();
+    const largestArea = Math.max(...components.map((component) => component.area));
 
-    // First remove the vertical card boundary and obvious dust.
     const candidates = components.filter((component) => {
-      const narrowLeftBoundary =
+      const edgeVertical =
         component.touchesLeft &&
-        component.width <= Math.max(5, width * 0.10) &&
-        component.height >= height * 0.48;
+        component.width <= Math.max(7, width * 0.14) &&
+        component.height >= height * 0.38;
 
-      const tinySpeck =
+      const topRule =
+        component.touchesTop &&
+        component.height <= Math.max(5, height * 0.12) &&
+        component.width >= width * 0.28;
+
+      const bottomArtwork =
+        component.touchesBottom &&
+        component.minY >= height * 0.68 &&
+        component.height <= height * 0.30 &&
+        component.area < largestArea * 0.48;
+
+      const tiny =
         component.area < Math.max(12, largestArea * 0.025) ||
-        (component.width <= 3 && component.height <= 7);
+        (component.width <= 3 && component.height <= 8);
 
-      if (narrowLeftBoundary || tinySpeck) {
-        removed.push(component);
-        return false;
-      }
-      return true;
+      if (edgeVertical) reasons.set(component, "left border");
+      else if (topRule) reasons.set(component, "top border");
+      else if (bottomArtwork) reasons.set(component, "bottom artwork");
+      else if (tiny) reasons.set(component, "small artifact");
+
+      return !(edgeVertical || topRule || bottomArtwork || tiny);
     });
 
-    if (!candidates.length) return { binary, removed, kept: components };
+    if (!candidates.length) {
+      const fallback = components.slice().sort((a, b) => b.area - a.area)[0];
+      return {
+        binary: componentMask([fallback], binary.length),
+        kept: [fallback],
+        removed: components.filter((component) => component !== fallback),
+        reasons
+      };
+    }
 
-    const candidateLargest = Math.max(...candidates.map((c) => c.area));
+    const centerTarget = { x: width * 0.38, y: height * 0.46 };
 
-    // Keep the primary rank component and, when meaningful, a second component.
-    // This preserves both characters of "10" without retaining random marks.
-    const meaningful = candidates
-      .filter((component) => {
-        const substantialArea = component.area >= Math.max(18, candidateLargest * 0.10);
-        const substantialHeight = component.height >= height * 0.24;
-        return substantialArea && substantialHeight;
-      })
-      .sort((a, b) => b.area - a.area);
+    const scored = candidates.map((component) => {
+      const center = componentCenter(component);
+      const dx = Math.abs(center.x - centerTarget.x) / width;
+      const dy = Math.abs(center.y - centerTarget.y) / height;
+      const areaScore = component.area / largestArea;
+      const heightScore = component.height / height;
+      const centrality = 1 - Math.min(1, dx * 1.35 + dy * 0.75);
+      const borderPenalty =
+        (component.touchesLeft ? 0.35 : 0) +
+        (component.touchesTop && component.height < height * 0.18 ? 0.30 : 0) +
+        (component.touchesBottom && component.area < largestArea * 0.55 ? 0.18 : 0);
 
-    const kept = meaningful.slice(0, 2);
+      return {
+        component,
+        score: areaScore * 0.62 + heightScore * 0.22 + centrality * 0.28 - borderPenalty
+      };
+    }).sort((a, b) => b.score - a.score);
 
-    // A second component is only accepted when it sits on the same text line
-    // and is reasonably close to the primary component.
-    if (kept.length === 2) {
-      const [first, second] = kept;
-      const left = first.minX < second.minX ? first : second;
-      const right = left === first ? second : first;
+    const primary = scored[0].component;
+    const kept = [primary];
+
+    // A valid companion preserves the two-part "10" and threshold-split letters.
+    scored.slice(1).forEach(({ component }) => {
+      if (kept.length >= 2) return;
+
+      const left = primary.minX <= component.minX ? primary : component;
+      const right = left === primary ? component : primary;
       const verticalOverlap =
         Math.max(0, Math.min(left.maxY, right.maxY) - Math.max(left.minY, right.minY) + 1) /
         Math.max(1, Math.min(left.height, right.height));
-      const horizontalGap = right.minX - left.maxX - 1;
-      const plausiblePair =
-        verticalOverlap >= 0.48 &&
-        horizontalGap <= width * 0.22 &&
-        right.area >= candidateLargest * 0.10;
+      const gap = right.minX - left.maxX - 1;
+      const areaRatio = component.area / Math.max(1, primary.area);
+      const sameLine =
+        verticalOverlap >= 0.42 &&
+        gap >= -2 &&
+        gap <= width * 0.24;
+      const substantial =
+        areaRatio >= 0.09 &&
+        component.height >= height * 0.25;
+      const notArtwork =
+        component.minY < height * 0.62 ||
+        component.height > height * 0.38;
 
-      if (!plausiblePair) {
-        removed.push(kept.pop());
+      if (sameLine && substantial && notArtwork) {
+        kept.push(component);
       }
+    });
+
+    const removed = components.filter((component) => !kept.includes(component));
+    removed.forEach((component) => {
+      if (!reasons.has(component)) reasons.set(component, "not part of primary rank");
+    });
+
+    return {
+      binary: componentMask(kept, binary.length),
+      kept,
+      removed,
+      reasons
+    };
+  }
+
+  function selectSuitComponents(binary, width, height) {
+    const components = binaryComponents(binary, width, height);
+    if (!components.length) {
+      return { binary, kept: [], removed: [], reasons: new Map() };
     }
 
-    // If filtering was too strict, retain the largest non-boundary component.
-    if (!kept.length) kept.push(candidates.sort((a, b) => b.area - a.area)[0]);
+    const reasons = new Map();
+    const largestArea = Math.max(...components.map((component) => component.area));
+    const target = { x: width * 0.52, y: height * 0.46 };
 
-    const cleaned = new Uint8Array(binary.length);
-    kept.forEach((component) => {
+    const scored = components.map((component) => {
+      const center = componentCenter(component);
+      const dx = Math.abs(center.x - target.x) / width;
+      const dy = Math.abs(center.y - target.y) / height;
+      const centrality = 1 - Math.min(1, dx * 1.2 + dy * 0.9);
+      const area = component.area / largestArea;
+      const shapeSize = Math.min(1, component.height / (height * 0.55));
+      const edgePenalty =
+        (component.touchesLeft ? 0.45 : 0) +
+        (component.touchesRight ? 0.30 : 0) +
+        (component.touchesTop && component.height < height * 0.16 ? 0.32 : 0) +
+        (component.touchesBottom && component.area < largestArea * 0.40 ? 0.25 : 0);
+
+      return {
+        component,
+        score: area * 0.62 + centrality * 0.34 + shapeSize * 0.18 - edgePenalty
+      };
+    }).sort((a, b) => b.score - a.score);
+
+    const primary = scored[0].component;
+    const kept = [primary];
+    const removed = components.filter((component) => component !== primary);
+
+    removed.forEach((component) => {
+      const tiny = component.area < Math.max(10, largestArea * 0.03);
+      const bottom = component.touchesBottom || component.minY > height * 0.70;
+      const edge = component.touchesLeft || component.touchesRight || component.touchesTop;
+      reasons.set(
+        component,
+        tiny ? "small artifact" :
+        bottom ? "bottom artwork" :
+        edge ? "edge artifact" :
+        "not strongest central suit"
+      );
+    });
+
+    return {
+      binary: componentMask(kept, binary.length),
+      kept,
+      removed,
+      reasons
+    };
+  }
+
+  function componentDebugCanvas(width, height, kept, removed) {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    const imageData = ctx.createImageData(width, height);
+
+    for (let i = 0; i < width * height; i += 1) {
+      const offset = i * 4;
+      imageData.data[offset] = 255;
+      imageData.data[offset + 1] = 255;
+      imageData.data[offset + 2] = 255;
+      imageData.data[offset + 3] = 255;
+    }
+
+    removed.forEach((component) => {
       component.pixels.forEach((index) => {
-        cleaned[index] = 1;
+        const offset = index * 4;
+        imageData.data[offset] = 225;
+        imageData.data[offset + 1] = 55;
+        imageData.data[offset + 2] = 55;
       });
     });
 
-    candidates.forEach((component) => {
-      if (!kept.includes(component)) removed.push(component);
+    kept.forEach((component) => {
+      component.pixels.forEach((index) => {
+        const offset = index * 4;
+        imageData.data[offset] = 20;
+        imageData.data[offset + 1] = 170;
+        imageData.data[offset + 2] = 90;
+      });
     });
 
-    return { binary: cleaned, removed, kept };
+    ctx.putImageData(imageData, 0, 0);
+    return canvas;
   }
 
   function binaryToCanvas(binary, width, height) {
@@ -1236,8 +1377,8 @@
 
     const rawMaskCanvas = binaryToCanvas(binary, source.width, source.height);
     const cleanup = options.role === "rank"
-      ? cleanRankBinary(binary, source.width, source.height)
-      : { binary, removed: [], kept: [] };
+      ? selectRankComponents(binary, source.width, source.height)
+      : selectSuitComponents(binary, source.width, source.height);
 
     const normalized = normalizeBinaryCanvas(
       source,
@@ -1246,16 +1387,25 @@
       targetHeight
     );
 
+    const componentDebug = componentDebugCanvas(
+      source.width,
+      source.height,
+      cleanup.kept,
+      cleanup.removed
+    );
+
     return {
       canvas: normalized.canvas,
       rawMaskCanvas,
+      componentDebugCanvas: componentDebug,
       cleanedSourceCanvas: normalized.sourceCanvas,
       foregroundBounds: normalized.foregroundBounds,
       colorFamily: redPixels > darkPixels * 0.65 ? "red" : "black",
       redPixels,
       darkPixels,
       removedComponents: cleanup.removed.length,
-      keptComponents: cleanup.kept.length
+      keptComponents: cleanup.kept.length,
+      removalReasons: Array.from(cleanup.reasons.values())
     };
   }
 
@@ -1333,9 +1483,13 @@
         box(rankSource, "Rank ROI"),
         box(suitSource, "Suit ROI"),
         box(rankMask.rawMaskCanvas, "Raw rank mask"),
-        box(rankMask.cleanedSourceCanvas, `Cleaned rank mask · removed ${rankMask.removedComponents}`),
+        box(rankMask.componentDebugCanvas, `Rank components · green kept / red rejected`),
+        box(rankMask.cleanedSourceCanvas, `Cleaned rank · kept ${rankMask.keptComponents} / removed ${rankMask.removedComponents}`),
         box(rankMask.canvas, "Normalized rank mask"),
-        box(suitMask.canvas, "Suit mask")
+        box(suitMask.rawMaskCanvas, "Raw suit mask"),
+        box(suitMask.componentDebugCanvas, "Suit components · green kept / red rejected"),
+        box(suitMask.cleanedSourceCanvas, `Cleaned suit · kept ${suitMask.keptComponents} / removed ${suitMask.removedComponents}`),
+        box(suitMask.canvas, "Normalized suit mask")
       );
 
       const status = document.createElement("div");
@@ -1433,7 +1587,7 @@
   function confirmShape() {
     if (!detection || detection.passCount < 8) return;
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      version: 32,
+      version: 33,
       detector: "opencv-fixed-tableau-template",
       imageName: selectedFile ? selectedFile.name : "board image",
       imageWidth: image.naturalWidth,
