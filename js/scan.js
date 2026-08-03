@@ -574,7 +574,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "fixed-tableau-template-v24",
+          detector: "fixed-tableau-template-v25",
           templateRatios: TEMPLATE,
           x: Math.round(original.left),
           y: Math.round(original.top),
@@ -633,12 +633,13 @@
   }
 
   function recognitionCropForRegion(region) {
-    // Read only the upper-left rank-and-suit area. This deliberately avoids the
-    // next card, bottom-card artwork, large suit pips, and the teal background.
-    const insetX = detection.spacing * 0.035;
-    const insetY = detection.rowStep * 0.035;
-    const width = detection.spacing * 0.72;
-    const height = detection.rowStep * 0.76;
+    // v25: wider and slightly taller than v24 so the entire rank and small suit
+    // symbol remain visible. The crop still stays inside one fitted column lane.
+    const insetX = detection.spacing * 0.012;
+    const insetY = detection.rowStep * 0.018;
+    const width = detection.spacing * 0.93;
+    const height = detection.rowStep * 0.86;
+
     return {
       x: Math.max(0, region.x + insetX),
       y: Math.max(0, region.y + insetY),
@@ -647,19 +648,35 @@
     };
   }
 
+  function rankAndSuitRegions(crop) {
+    return {
+      rank: {
+        x: crop.x,
+        y: crop.y,
+        width: crop.width * 0.58,
+        height: crop.height
+      },
+      suit: {
+        x: crop.x + crop.width * 0.52,
+        y: crop.y,
+        width: crop.width * 0.48,
+        height: crop.height
+      }
+    };
+  }
+
   function makeCropCanvas(crop) {
     const canvas = document.createElement("canvas");
     const sourceWidth = Math.max(1, Math.round(crop.width));
     const sourceHeight = Math.max(1, Math.round(crop.height));
 
-    // Keep enough native pixels to judge sharpness while limiting memory use.
-    const previewScale = Math.min(1, 240 / sourceWidth);
-    canvas.width = Math.max(1, Math.round(sourceWidth * previewScale));
-    canvas.height = Math.max(1, Math.round(sourceHeight * previewScale));
+    // Preserve the complete extraction rectangle. CSS uses object-fit: contain,
+    // so no edge of the bitmap is hidden in the thumbnail.
+    canvas.width = sourceWidth;
+    canvas.height = sourceHeight;
 
     const ctx = canvas.getContext("2d");
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
+    ctx.imageSmoothingEnabled = false;
     ctx.drawImage(
       sourceCanvas,
       Math.round(crop.x),
@@ -668,8 +685,8 @@
       sourceHeight,
       0,
       0,
-      canvas.width,
-      canvas.height
+      sourceWidth,
+      sourceHeight
     );
     return canvas;
   }
@@ -692,7 +709,11 @@
       canvas.setAttribute("aria-label", `${region.id} rank-and-suit crop`);
 
       const caption = document.createElement("figcaption");
-      caption.textContent = region.id;
+      const size = `${Math.round(crop.width)}×${Math.round(crop.height)} px`;
+      caption.innerHTML = `<strong>${region.id}</strong><small>${size}</small>`;
+
+      // Save the exact split that the recognizer will use later.
+      figure.dataset.rankSuitRegions = JSON.stringify(rankAndSuitRegions(crop));
 
       figure.append(canvas, caption);
       detailsGrid.appendChild(figure);
@@ -706,7 +727,7 @@
   function confirmShape() {
     if (!detection || detection.passCount < 8) return;
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      version: 24,
+      version: 25,
       detector: "opencv-fixed-tableau-template",
       imageName: selectedFile ? selectedFile.name : "board image",
       imageWidth: image.naturalWidth,
