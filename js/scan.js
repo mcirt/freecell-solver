@@ -85,13 +85,13 @@
         return result;
       };
       return {
-        version: 34,
+        version: 35,
         ranks: normalizeGroup(raw.ranks),
         suits: normalizeGroup(raw.suits)
       };
     } catch (error) {
       console.warn("Could not load recognition templates.", error);
-      return { version: 34, ranks: {}, suits: {} };
+      return { version: 35, ranks: {}, suits: {} };
     }
   }
 
@@ -214,7 +214,7 @@
   function exportRecognitionLibrary() {
     const payload = {
       format: "freecell-recognition-template-library",
-      version: 34,
+      version: 35,
       createdAt: new Date().toISOString(),
       normalization: { width: 64, height: 80, shiftTolerance: 2 },
       ranks: recognitionLibrary.ranks,
@@ -237,7 +237,7 @@
           throw new Error("This is not a v31 recognition-library export.");
         }
         recognitionLibrary = {
-          version: 34,
+          version: 35,
           ranks: parsed.ranks || {},
           suits: parsed.suits || {}
         };
@@ -444,38 +444,36 @@
     }).join("\n");
   }
 
-  function tryLoadRecognizedBoardIntoExistingInput(columns) {
-    const boardText = recognizedBoardToSolverText(columns);
+  function tryLoadRecognizedBoardIntoExistingInput(columns, options) {
+    const settings = Object.assign({ solve: true }, options || {});
+    const manualColumns = columns.map((column) => column.map((card) => {
+      const rank = card.rank === "10" ? "T" : card.rank;
+      return `${rank}${card.suit}`;
+    }));
 
-    const possibleTextareaIds = [
-      "board-input",
-      "board-text",
-      "deal-input",
-      "board",
-      "freecell-board-input"
-    ];
-
-    const target = possibleTextareaIds
-      .map((id) => byId(id))
-      .find((element) => element && ("value" in element));
-
-    if (target) {
-      target.value = boardText;
-      target.dispatchEvent(new Event("input", { bubbles: true }));
-      target.dispatchEvent(new Event("change", { bubbles: true }));
-      announce("Recognized board loaded into the existing board input.", "success");
-      setDialogOpen(false);
-      target.scrollIntoView({ behavior: "smooth", block: "center" });
-      return true;
+    if (window.FreeCellBoardInput && typeof window.FreeCellBoardInput.loadColumns === "function") {
+      const result = window.FreeCellBoardInput.loadColumns(manualColumns, {
+        solve: settings.solve,
+        closeScanner: true
+      });
+      if (result && result.ok) return true;
+      announce(result && result.error ? result.error : "The manual board rejected the scanned cards.", "error");
+      return false;
     }
 
-    navigator.clipboard?.writeText(boardText).then(() => {
-      announce("No board-input field was detected, so the validated board was copied to the clipboard.", "success");
-    }).catch(() => {
-      downloadBlob("recognized-freecell-board.txt", boardText, "text/plain");
-      announce("The validated board was downloaded as a text file.", "success");
-    });
-    return false;
+    // Event fallback keeps the scanner independent if script loading order changes.
+    window.dispatchEvent(new CustomEvent("freecell-import-board", {
+      detail: { columns: manualColumns, solve: settings.solve, closeScanner: true }
+    }));
+
+    window.setTimeout(() => {
+      const manualBoard = byId("input-board");
+      const filled = manualBoard ? manualBoard.querySelectorAll(".input-slot.filled").length : 0;
+      if (filled !== 52) {
+        announce("The scanner could not reach the manual-entry controller. Refresh the page and try again.", "error");
+      }
+    }, 250);
+    return true;
   }
 
   function updateBoardCardFromEditor(card, rank, suit) {
@@ -625,12 +623,12 @@
       announce("Correct the highlighted cards until the deck is valid.", "error");
       return;
     }
-    tryLoadRecognizedBoardIntoExistingInput(recognizedBoard);
+    tryLoadRecognizedBoardIntoExistingInput(recognizedBoard, { solve: true });
   }
 
   function clearRecognitionLibrary() {
     if (!window.confirm("Delete all saved rank and suit templates from this browser?")) return;
-    recognitionLibrary = { version: 34, ranks: {}, suits: {} };
+    recognitionLibrary = { version: 35, ranks: {}, suits: {} };
     saveRecognitionLibrary();
     refreshAllPredictions();
   }
@@ -1201,7 +1199,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "fixed-tableau-template-v34",
+          detector: "fixed-tableau-template-v35",
           templateRatios: TEMPLATE,
           tableauTopCorrectionPx: TABLEAU_TOP_CORRECTION_PX,
           tableauRowStepCorrectionPx: TABLEAU_ROW_STEP_CORRECTION_PX,
@@ -1927,7 +1925,7 @@
   function confirmShape() {
     if (!detection || detection.passCount < 8) return;
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      version: 34,
+      version: 35,
       detector: "opencv-fixed-tableau-template",
       imageName: selectedFile ? selectedFile.name : "board image",
       imageWidth: image.naturalWidth,

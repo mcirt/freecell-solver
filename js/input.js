@@ -210,6 +210,68 @@
     }
   }
 
+  function importColumns(rawColumns, options) {
+    const settings = Object.assign({ solve: false, closeScanner: true }, options || {});
+
+    try {
+      if (!Array.isArray(rawColumns) || rawColumns.length !== 8) {
+        throw new Error("Imported board must contain exactly 8 columns.");
+      }
+
+      const imported = rawColumns.map((column, columnIndex) => {
+        if (!Array.isArray(column) || column.length !== COLUMN_SIZES[columnIndex]) {
+          throw new Error(
+            "Column " + (columnIndex + 1) + " must contain " + COLUMN_SIZES[columnIndex] + " cards."
+          );
+        }
+
+        return column.map(card => {
+          if (typeof card !== "string") throw new Error("Every imported card must be text.");
+          const normalized = card.trim().toUpperCase().replace(/^10/, "T");
+          const rank = normalized.slice(0, -1);
+          const suit = normalized.slice(-1);
+          if (!RANKS.includes(rank) || !SUITS.some(item => item.code === suit)) {
+            throw new Error("Invalid imported card: " + card);
+          }
+          return rank + suit;
+        });
+      });
+
+      const cards = imported.flat();
+      if (cards.length !== 52) throw new Error("Imported board must contain exactly 52 cards.");
+      if (new Set(cards).size !== 52) throw new Error("Imported board contains duplicate cards.");
+
+      pushHistory();
+      columns = imported.map(column => column.slice());
+      active = { column: 7, row: 5 };
+      announce("Scanned board loaded into manual entry.", "success");
+      renderAll();
+
+      if (settings.closeScanner) {
+        const dialog = document.getElementById("scan-dialog");
+        if (dialog) dialog.hidden = true;
+        document.body.classList.remove("scan-open");
+      }
+
+      boardEl.scrollIntoView({ behavior: "smooth", block: "start" });
+
+      if (settings.solve) {
+        window.setTimeout(() => {
+          if (!solveButton.disabled) {
+            solveButton.click();
+          } else {
+            announce("Board loaded. The solver is still loading; press Solve This Board when it becomes ready.", "info");
+          }
+        }, 100);
+      }
+
+      return { ok: true, columns: columns.map(column => column.slice()) };
+    } catch (error) {
+      announce("The scanned board could not be loaded: " + error.message, "error");
+      return { ok: false, error: error.message };
+    }
+  }
+
   function loadBoard() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -242,6 +304,23 @@
   });
   document.getElementById("settings").addEventListener("click", () => {
     window.alert("No settings are needed yet.");
+  });
+
+  window.FreeCellBoardInput = Object.freeze({
+    loadColumns(rawColumns, options) {
+      return importColumns(rawColumns, options);
+    },
+    getColumns() {
+      return columns.map(column => column.slice());
+    }
+  });
+
+  window.addEventListener("freecell-import-board", event => {
+    const detail = event.detail || {};
+    importColumns(detail.columns, {
+      solve: Boolean(detail.solve),
+      closeScanner: detail.closeScanner !== false
+    });
   });
 
   window.addEventListener("freecell-solver-ready", () => {
