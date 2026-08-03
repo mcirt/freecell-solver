@@ -154,16 +154,16 @@
 
         <section id="scan-crop-preview-panel" class="scan-crop-preview-panel" hidden aria-label="Card recognition thumbnail preview">
           <h3>52 card-recognition results</h3>
-          <p>Build a high-accuracy library by saving 3–5 clean examples of each rank and suit. The matcher checks every example with ±2-pixel alignment tolerance and marks weak predictions for review.</p>
+          <p>The complete working recognition library is built into the project and loads automatically on every device. You may still save optional extra examples for future testing.</p>
           <div id="scan-recognition-library-summary" class="scan-recognition-library-summary"></div>
           <div class="scan-library-actions">
-            <button id="scan-export-recognition-templates" class="scan-secondary" type="button">Export Library JSON</button>
+            <button id="scan-export-recognition-templates" class="scan-secondary" type="button">Export My Added Templates</button>
             <label class="scan-secondary scan-import-label">
-              Import Library JSON
+              Import Added Templates
               <input id="scan-import-recognition-templates" type="file" accept="application/json,.json">
             </label>
-            <button id="scan-clear-rank-templates" class="scan-secondary" type="button">Clear Rank Templates Only</button>
-            <button id="scan-clear-recognition-templates" class="scan-secondary scan-clear-templates" type="button">Clear All Saved Templates</button>
+            <button id="scan-clear-rank-templates" class="scan-secondary" type="button">Clear My Rank Additions</button>
+            <button id="scan-clear-recognition-templates" class="scan-secondary scan-clear-templates" type="button">Clear All My Additions</button>
           </div>
           <div id="scan-crop-preview-grid" class="scan-crop-preview-grid"></div>
         </section>
@@ -175,7 +175,8 @@
   <script src="js/opencv.js?v=21"></script>
   <script src="js/opencv-loader.js?v=21"></script>
   <script src="js/input.js?v=35"></script>
-  <script src="js/scan.js?v=35"></script>
+  <script src="data/recognition-library-v36.js?v=36"></script>
+  <script src="js/scan.js?v=36"></script>
   <script>
     var require = { baseUrl: "js", urlArgs: "v=20" };
   </script>
