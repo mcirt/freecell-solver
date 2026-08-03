@@ -11,6 +11,14 @@
   const detailsButton = byId("scan-preview-crops");
   const confirmButton = byId("scan-confirm-crops");
   const pictureInput = byId("board-picture-input");
+  const cameraInput = byId("board-camera-input");
+  const photoPanel = byId("scan-photo-panel");
+  const photoCanvas = byId("scan-photo-canvas");
+  const photoStatus = byId("scan-photo-status");
+  const photoAutoButton = byId("scan-photo-auto");
+  const photoResetButton = byId("scan-photo-reset-points");
+  const photoUseButton = byId("scan-photo-use");
+  const photoSkipButton = byId("scan-photo-skip");
   const pickerPanel = byId("scan-picker-panel");
   const previewPanel = byId("scan-preview-panel");
   const detailsPanel = byId("scan-crop-preview-panel");
@@ -60,6 +68,10 @@
   const TABLEAU_ROW_STEP_CORRECTION_PX = -1;
 
   let selectedFile = null;
+  let selectedInputMode = "screenshot";
+  let originalPhotoCanvas = null;
+  let photoCorners = [];
+  let photoCornerInputActive = false;
   let objectUrl = null;
   let sourceCanvas = null;
   let detection = null;
@@ -264,7 +276,7 @@
   function exportRecognitionLibrary() {
     const payload = {
       format: "freecell-recognition-template-additions",
-      version: 36,
+      version: 37,
       createdAt: new Date().toISOString(),
       normalization: { width: 64, height: 80, shiftTolerance: 2 },
       ranks: localRecognitionLibrary.ranks,
@@ -725,6 +737,285 @@
     cvStatus.className = "opencv-status" + (kind ? " " + kind : "");
   }
 
+
+  function setPhotoStatus(text, kind) {
+    if (!photoStatus) return;
+    photoStatus.textContent = text;
+    photoStatus.className = "scan-photo-status" + (kind ? " " + kind : "");
+  }
+
+  function orderQuad(points) {
+    if (!points || points.length !== 4) return null;
+    const ordered = points.map((point) => ({ x: point.x, y: point.y }));
+    const sum = ordered.map((p) => p.x + p.y);
+    const diff = ordered.map((p) => p.x - p.y);
+    return [
+      ordered[sum.indexOf(Math.min(...sum))],
+      ordered[diff.indexOf(Math.max(...diff))],
+      ordered[sum.indexOf(Math.max(...sum))],
+      ordered[diff.indexOf(Math.min(...diff))]
+    ];
+  }
+
+  function quadArea(points) {
+    if (!points || points.length !== 4) return 0;
+    let area = 0;
+    for (let i = 0; i < 4; i += 1) {
+      const a = points[i];
+      const b = points[(i + 1) % 4];
+      area += a.x * b.y - b.x * a.y;
+    }
+    return Math.abs(area) / 2;
+  }
+
+  function drawPhotoCornerReview() {
+    if (!photoCanvas || !originalPhotoCanvas) return;
+    const maxWidth = 900;
+    const scale = Math.min(1, maxWidth / originalPhotoCanvas.width);
+    photoCanvas.width = Math.round(originalPhotoCanvas.width * scale);
+    photoCanvas.height = Math.round(originalPhotoCanvas.height * scale);
+    const ctx = photoCanvas.getContext("2d");
+    ctx.drawImage(originalPhotoCanvas, 0, 0, photoCanvas.width, photoCanvas.height);
+
+    if (!photoCorners.length) return;
+    const scaled = photoCorners.map((point) => ({ x: point.x * scale, y: point.y * scale }));
+    ctx.save();
+    ctx.strokeStyle = "#00f0ff";
+    ctx.fillStyle = "#00f0ff";
+    ctx.lineWidth = Math.max(3, photoCanvas.width * 0.004);
+    ctx.beginPath();
+    scaled.forEach((point, index) => {
+      if (index === 0) ctx.moveTo(point.x, point.y);
+      else ctx.lineTo(point.x, point.y);
+    });
+    if (scaled.length === 4) ctx.closePath();
+    ctx.stroke();
+
+    scaled.forEach((point, index) => {
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, Math.max(7, photoCanvas.width * 0.012), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#04142e";
+      ctx.font = `bold ${Math.max(12, photoCanvas.width * 0.018)}px Arial`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(index + 1), point.x, point.y);
+      ctx.fillStyle = "#00f0ff";
+    });
+    ctx.restore();
+  }
+
+  function detectDisplayQuadrilateral() {
+    if (!cvReady || !window.cv || !originalPhotoCanvas) {
+      setPhotoStatus("OpenCV is not ready for photo preparation.", "warning");
+      return;
+    }
+
+    let src, resized, gray, blurred, edges, closed, contours, hierarchy;
+    try {
+      const cv = window.cv;
+      src = cv.imread(originalPhotoCanvas);
+      const scale = Math.min(1, 1000 / src.cols);
+      resized = new cv.Mat();
+      cv.resize(src, resized, new cv.Size(Math.round(src.cols * scale), Math.round(src.rows * scale)), 0, 0, cv.INTER_AREA);
+
+      gray = new cv.Mat();
+      cv.cvtColor(resized, gray, cv.COLOR_RGBA2GRAY);
+      blurred = new cv.Mat();
+      cv.GaussianBlur(gray, blurred, new cv.Size(7, 7), 0);
+      edges = new cv.Mat();
+      cv.Canny(blurred, edges, 45, 135);
+
+      closed = new cv.Mat();
+      const kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(9, 9));
+      cv.morphologyEx(edges, closed, cv.MORPH_CLOSE, kernel);
+      kernel.delete();
+
+      contours = new cv.MatVector();
+      hierarchy = new cv.Mat();
+      cv.findContours(closed, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
+
+      const imageArea = resized.cols * resized.rows;
+      let best = null;
+
+      for (let i = 0; i < contours.size(); i += 1) {
+        const contour = contours.get(i);
+        const area = Math.abs(cv.contourArea(contour));
+        if (area < imageArea * 0.18) {
+          contour.delete();
+          continue;
+        }
+
+        const perimeter = cv.arcLength(contour, true);
+        const approx = new cv.Mat();
+        cv.approxPolyDP(contour, approx, perimeter * 0.025, true);
+
+        if (approx.rows === 4 && cv.isContourConvex(approx)) {
+          const points = [];
+          for (let row = 0; row < 4; row += 1) {
+            points.push({
+              x: approx.intPtr(row, 0)[0] / scale,
+              y: approx.intPtr(row, 0)[1] / scale
+            });
+          }
+          const ordered = orderQuad(points);
+          const score = area / imageArea;
+          if (!best || score > best.score) best = { points: ordered, score };
+        }
+
+        approx.delete();
+        contour.delete();
+      }
+
+      if (best) {
+        photoCorners = best.points;
+        setPhotoStatus(`Display candidate found. It covers ${Math.round(best.score * 100)}% of the working image. Review the cyan corners.`, "ready");
+      } else {
+        const insetX = originalPhotoCanvas.width * 0.06;
+        const insetY = originalPhotoCanvas.height * 0.05;
+        photoCorners = [
+          { x: insetX, y: insetY },
+          { x: originalPhotoCanvas.width - insetX, y: insetY },
+          { x: originalPhotoCanvas.width - insetX, y: originalPhotoCanvas.height - insetY },
+          { x: insetX, y: originalPhotoCanvas.height - insetY }
+        ];
+        setPhotoStatus("No strong four-corner display was found. A safe inset was drawn; tap the true four corners if needed.", "warning");
+      }
+      drawPhotoCornerReview();
+    } catch (error) {
+      console.error(error);
+      setPhotoStatus(`Photo detection failed: ${error.message}`, "warning");
+    } finally {
+      [src, resized, gray, blurred, edges, closed, contours, hierarchy].forEach((mat) => {
+        if (mat && typeof mat.delete === "function") mat.delete();
+      });
+    }
+  }
+
+  function beginManualPhotoCorners() {
+    photoCorners = [];
+    photoCornerInputActive = true;
+    setPhotoStatus("Tap the display corners in this order: top-left, top-right, bottom-right, bottom-left.", "working");
+    drawPhotoCornerReview();
+  }
+
+  function handlePhotoCanvasTap(event) {
+    if (!photoCornerInputActive || !photoCanvas || !originalPhotoCanvas) return;
+    const rect = photoCanvas.getBoundingClientRect();
+    const canvasX = (event.clientX - rect.left) * (photoCanvas.width / rect.width);
+    const canvasY = (event.clientY - rect.top) * (photoCanvas.height / rect.height);
+    const scaleX = originalPhotoCanvas.width / photoCanvas.width;
+    const scaleY = originalPhotoCanvas.height / photoCanvas.height;
+    photoCorners.push({ x: canvasX * scaleX, y: canvasY * scaleY });
+
+    if (photoCorners.length === 4) {
+      photoCorners = orderQuad(photoCorners);
+      photoCornerInputActive = false;
+      setPhotoStatus("Four manual corners recorded. Review the cyan quadrilateral, then tap Straighten and Scan.", "ready");
+    } else {
+      setPhotoStatus(`${photoCorners.length}/4 corners recorded.`, "working");
+    }
+    drawPhotoCornerReview();
+  }
+
+  function distance(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+
+  function rectifyPhotoAndScan() {
+    if (!cvReady || !window.cv || !originalPhotoCanvas || photoCorners.length !== 4) {
+      setPhotoStatus("Four display corners are required before straightening.", "warning");
+      return;
+    }
+
+    let src, srcPoints, dstPoints, transform, warped;
+    try {
+      const cv = window.cv;
+      const points = orderQuad(photoCorners);
+      const width = Math.max(
+        distance(points[0], points[1]),
+        distance(points[3], points[2])
+      );
+      const height = Math.max(
+        distance(points[0], points[3]),
+        distance(points[1], points[2])
+      );
+
+      if (width < 250 || height < 350 || quadArea(points) < originalPhotoCanvas.width * originalPhotoCanvas.height * 0.10) {
+        throw new Error("The selected quadrilateral is too small.");
+      }
+
+      const targetWidth = Math.min(1400, Math.max(600, Math.round(width)));
+      const targetHeight = Math.min(2400, Math.max(800, Math.round(height)));
+
+      src = cv.imread(originalPhotoCanvas);
+      srcPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+        points[0].x, points[0].y,
+        points[1].x, points[1].y,
+        points[2].x, points[2].y,
+        points[3].x, points[3].y
+      ]);
+      dstPoints = cv.matFromArray(4, 1, cv.CV_32FC2, [
+        0, 0,
+        targetWidth - 1, 0,
+        targetWidth - 1, targetHeight - 1,
+        0, targetHeight - 1
+      ]);
+      transform = cv.getPerspectiveTransform(srcPoints, dstPoints);
+      warped = new cv.Mat();
+      cv.warpPerspective(
+        src,
+        warped,
+        transform,
+        new cv.Size(targetWidth, targetHeight),
+        cv.INTER_LINEAR,
+        cv.BORDER_REPLICATE
+      );
+
+      const corrected = document.createElement("canvas");
+      corrected.width = targetWidth;
+      corrected.height = targetHeight;
+      cv.imshow(corrected, warped);
+
+      sourceCanvas = corrected;
+      image.onload = () => {
+        photoPanel.hidden = true;
+        clearDetection();
+        updateCvStatus("Photo straightened. Detecting the tableau in the corrected image…", "working");
+        window.setTimeout(detectTableauShape, 40);
+      };
+      image.src = corrected.toDataURL("image/jpeg", 0.94);
+      setPhotoStatus("Perspective correction complete.", "ready");
+    } catch (error) {
+      console.error(error);
+      setPhotoStatus(`Could not straighten photo: ${error.message}`, "warning");
+    } finally {
+      [src, srcPoints, dstPoints, transform, warped].forEach((mat) => {
+        if (mat && typeof mat.delete === "function") mat.delete();
+      });
+    }
+  }
+
+  function skipPhotoCorrection() {
+    if (!originalPhotoCanvas) return;
+    sourceCanvas = originalPhotoCanvas;
+    photoPanel.hidden = true;
+    updateCvStatus("Using the original photo without perspective correction.", "warning");
+    window.setTimeout(detectTableauShape, 30);
+  }
+
+  function preparePhotoMode() {
+    ensureCanvas();
+    originalPhotoCanvas = document.createElement("canvas");
+    originalPhotoCanvas.width = sourceCanvas.width;
+    originalPhotoCanvas.height = sourceCanvas.height;
+    originalPhotoCanvas.getContext("2d").drawImage(sourceCanvas, 0, 0);
+    photoPanel.hidden = false;
+    detectButton.disabled = true;
+    setPhotoStatus("Looking for the photographed display boundary…", "working");
+    window.setTimeout(detectDisplayQuadrilateral, 40);
+  }
+
   function initializeOpenCv() {
     updateCvStatus("Loading OpenCV…", "working");
     if (!window.freecellCvReady) {
@@ -735,7 +1026,10 @@
       cvReady = true;
       detectButton.disabled = false;
       updateCvStatus("OpenCV ready.", "ready");
-      if (image.naturalWidth) detectTableauShape();
+      if (image.naturalWidth) {
+        if (selectedInputMode === "photo" && !originalPhotoCanvas) preparePhotoMode();
+        else if (selectedInputMode !== "photo") detectTableauShape();
+      }
     }).catch((error) => {
       console.error(error);
       updateCvStatus("OpenCV did not initialize. Close and restart Safari, then retry.", "warning");
@@ -774,12 +1068,18 @@
   function showPicker() {
     cleanUrl();
     selectedFile = null;
+    selectedInputMode = "screenshot";
     sourceCanvas = null;
+    originalPhotoCanvas = null;
+    photoCorners = [];
+    photoCornerInputActive = false;
+    if (photoPanel) photoPanel.hidden = true;
     clearDetection();
     image.removeAttribute("src");
     pickerPanel.hidden = false;
     previewPanel.hidden = true;
     pictureInput.value = "";
+    if (cameraInput) cameraInput.value = "";
   }
 
   function ensureCanvas() {
@@ -1271,7 +1571,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "fixed-tableau-template-v36",
+          detector: "fixed-tableau-template-v37",
           templateRatios: TEMPLATE,
           tableauTopCorrectionPx: TABLEAU_TOP_CORRECTION_PX,
           tableauRowStepCorrectionPx: TABLEAU_ROW_STEP_CORRECTION_PX,
@@ -1997,8 +2297,8 @@
   function confirmShape() {
     if (!detection || detection.passCount < 8) return;
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      version: 36,
-      detector: "opencv-fixed-tableau-template-v36",
+      version: 37,
+      detector: "opencv-fixed-tableau-template-v37",
       imageName: selectedFile ? selectedFile.name : "board image",
       imageWidth: image.naturalWidth,
       imageHeight: image.naturalHeight,
@@ -2010,24 +2310,35 @@
     announce("Tableau template and all 52 card regions were saved.", "success");
   }
 
-  function showImage(file) {
+  function showImage(file, inputMode = "screenshot") {
     if (!file || (file.type && !file.type.startsWith("image/"))) {
       announce("Choose a valid image file.", "error");
       return;
     }
     cleanUrl();
     selectedFile = file;
+    selectedInputMode = inputMode;
     objectUrl = URL.createObjectURL(file);
     image.onload = () => {
       sourceCanvas = null;
       pickerPanel.hidden = true;
       previewPanel.hidden = false;
       clearDetection();
-      updateCvStatus(
-        cvReady ? "Image loaded. Fitting tableau template…" : "Image loaded. Waiting for OpenCV…",
-        "working"
-      );
-      if (cvReady) window.setTimeout(detectTableauShape, 30);
+      ensureCanvas();
+
+      if (selectedInputMode === "photo") {
+        updateCvStatus(
+          cvReady ? "Photo loaded. Preparing perspective correction…" : "Photo loaded. Waiting for OpenCV…",
+          "working"
+        );
+        if (cvReady) window.setTimeout(preparePhotoMode, 30);
+      } else {
+        updateCvStatus(
+          cvReady ? "Screenshot loaded. Fitting tableau template…" : "Screenshot loaded. Waiting for OpenCV…",
+          "working"
+        );
+        if (cvReady) window.setTimeout(detectTableauShape, 30);
+      }
     };
     image.onerror = () => announce("The selected image could not be displayed.", "error");
     image.src = objectUrl;
@@ -2035,7 +2346,12 @@
 
   function handleSelection() {
     const file = pictureInput.files && pictureInput.files[0];
-    if (file) showImage(file);
+    if (file) showImage(file, "screenshot");
+  }
+
+  function handleCameraSelection() {
+    const file = cameraInput && cameraInput.files && cameraInput.files[0];
+    if (file) showImage(file, "photo");
   }
 
   if (!openButton || !dialog || !pictureInput) return;
@@ -2050,6 +2366,16 @@
     .forEach((node) => node.addEventListener("click", () => setDialogOpen(false)));
   pictureInput.addEventListener("change", handleSelection);
   pictureInput.addEventListener("input", handleSelection);
+  if (cameraInput) {
+    cameraInput.addEventListener("change", handleCameraSelection);
+    cameraInput.addEventListener("input", handleCameraSelection);
+  }
+
+  if (photoCanvas) photoCanvas.addEventListener("click", handlePhotoCanvasTap);
+  if (photoAutoButton) photoAutoButton.addEventListener("click", detectDisplayQuadrilateral);
+  if (photoResetButton) photoResetButton.addEventListener("click", beginManualPhotoCorners);
+  if (photoUseButton) photoUseButton.addEventListener("click", rectifyPhotoAndScan);
+  if (photoSkipButton) photoSkipButton.addEventListener("click", skipPhotoCorrection);
   chooseAnotherButton.addEventListener("click", showPicker);
   resetButton.addEventListener("click", clearDetection);
   detectButton.addEventListener("click", detectTableauShape);
