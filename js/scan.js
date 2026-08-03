@@ -12,6 +12,14 @@
   const confirmButton = byId("scan-confirm-crops");
   const pictureInput = byId("board-picture-input");
   const cameraInput = byId("board-camera-input");
+  const startCameraButton = byId("scan-start-camera");
+  const cameraPanel = byId("scan-camera-panel");
+  const cameraVideo = byId("scan-camera-video");
+  const cameraGuide = byId("scan-camera-guide");
+  const cameraStatus = byId("scan-camera-status");
+  const cameraCaptureButton = byId("scan-capture-camera");
+  const cameraStopButton = byId("scan-stop-camera");
+  const cameraCancelButton = byId("scan-camera-cancel");
   const photoPanel = byId("scan-photo-panel");
   const photoCanvas = byId("scan-photo-canvas");
   const photoStatus = byId("scan-photo-status");
@@ -69,6 +77,7 @@
 
   let selectedFile = null;
   let selectedInputMode = "screenshot";
+  let cameraStream = null;
   let originalPhotoCanvas = null;
   let photoCorners = [];
   let photoCornerInputActive = false;
@@ -276,7 +285,7 @@
   function exportRecognitionLibrary() {
     const payload = {
       format: "freecell-recognition-template-additions",
-      version: 37,
+      version: 38,
       createdAt: new Date().toISOString(),
       normalization: { width: 64, height: 80, shiftTolerance: 2 },
       ranks: localRecognitionLibrary.ranks,
@@ -738,6 +747,117 @@
   }
 
 
+
+  function setCameraStatus(text, kind) {
+    if (!cameraStatus) return;
+    cameraStatus.textContent = text;
+    cameraStatus.className = "scan-camera-status" + (kind ? ` ${kind}` : "");
+  }
+
+  function stopGuidedCamera({ showPicker = true } = {}) {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach((track) => track.stop());
+      cameraStream = null;
+    }
+    if (cameraVideo) {
+      cameraVideo.pause();
+      cameraVideo.srcObject = null;
+    }
+    if (cameraPanel) cameraPanel.hidden = true;
+    if (showPicker && pickerPanel) pickerPanel.hidden = false;
+    if (cameraCaptureButton) cameraCaptureButton.disabled = true;
+  }
+
+  async function startGuidedCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      announce("This browser does not provide an in-page camera. Use Choose Existing Camera Photo instead.", "error");
+      return;
+    }
+
+    stopGuidedCamera({ showPicker: false });
+    pickerPanel.hidden = true;
+    previewPanel.hidden = true;
+    cameraPanel.hidden = false;
+    setCameraStatus("Requesting rear-camera permission…", "working");
+
+    try {
+      cameraStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        }
+      });
+      cameraVideo.srcObject = cameraStream;
+      await cameraVideo.play();
+      cameraCaptureButton.disabled = false;
+      setCameraStatus("Align the full tableau inside the brackets, hold steady, then tap Capture Tableau.", "ready");
+    } catch (error) {
+      console.error(error);
+      stopGuidedCamera({ showPicker: true });
+      const message = error && error.name === "NotAllowedError"
+        ? "Camera permission was denied. Allow camera access in Safari settings or choose an existing photo."
+        : `Camera could not start: ${error.message || error}`;
+      announce(message, "error");
+    }
+  }
+
+  function guideCropFromVideo() {
+    if (!cameraVideo || !cameraGuide || !cameraVideo.videoWidth || !cameraVideo.videoHeight) return null;
+    const videoRect = cameraVideo.getBoundingClientRect();
+    const guideRect = cameraGuide.getBoundingClientRect();
+    if (!videoRect.width || !videoRect.height) return null;
+
+    const xRatio = cameraVideo.videoWidth / videoRect.width;
+    const yRatio = cameraVideo.videoHeight / videoRect.height;
+    const x = Math.max(0, Math.round((guideRect.left - videoRect.left) * xRatio));
+    const y = Math.max(0, Math.round((guideRect.top - videoRect.top) * yRatio));
+    const width = Math.min(cameraVideo.videoWidth - x, Math.round(guideRect.width * xRatio));
+    const height = Math.min(cameraVideo.videoHeight - y, Math.round(guideRect.height * yRatio));
+    return { x, y, width, height };
+  }
+
+  function captureGuidedTableau() {
+    const crop = guideCropFromVideo();
+    if (!crop || crop.width < 300 || crop.height < 250) {
+      setCameraStatus("The camera preview is not ready yet. Wait a moment and try again.", "warning");
+      return;
+    }
+
+    const paddingX = Math.round(crop.width * 0.035);
+    const paddingY = Math.round(crop.height * 0.045);
+    const sx = Math.max(0, crop.x - paddingX);
+    const sy = Math.max(0, crop.y - paddingY);
+    const sw = Math.min(cameraVideo.videoWidth - sx, crop.width + paddingX * 2);
+    const sh = Math.min(cameraVideo.videoHeight - sy, crop.height + paddingY * 2);
+
+    const captured = document.createElement("canvas");
+    captured.width = sw;
+    captured.height = sh;
+    const ctx = captured.getContext("2d", { alpha: false });
+    ctx.drawImage(cameraVideo, sx, sy, sw, sh, 0, 0, sw, sh);
+
+    stopGuidedCamera({ showPicker: false });
+    selectedInputMode = "guided-camera";
+    selectedFile = null;
+    sourceCanvas = captured;
+    pickerPanel.hidden = true;
+    previewPanel.hidden = false;
+    if (photoPanel) photoPanel.hidden = true;
+
+    image.onload = () => {
+      sourceCanvas = captured;
+      clearDetection();
+      updateCvStatus(
+        cvReady ? "Guided photo captured. Fitting the known tableau template inside the bracket crop…" : "Guided photo captured. Waiting for OpenCV…",
+        "working"
+      );
+      if (cvReady) window.setTimeout(detectTableauShape, 40);
+    };
+    image.src = captured.toDataURL("image/jpeg", 0.96);
+  }
+
   function setPhotoStatus(text, kind) {
     if (!photoStatus) return;
     photoStatus.textContent = text;
@@ -1038,6 +1158,7 @@
   }
 
   function setDialogOpen(open) {
+    if (!open) stopGuidedCamera({ showPicker: false });
     dialog.hidden = !open;
     document.body.classList.toggle("scan-open", open);
   }
@@ -1067,6 +1188,7 @@
 
   function showPicker() {
     cleanUrl();
+    stopGuidedCamera({ showPicker: false });
     selectedFile = null;
     selectedInputMode = "screenshot";
     sourceCanvas = null;
@@ -1571,7 +1693,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "fixed-tableau-template-v37",
+          detector: "fixed-tableau-template-v38",
           templateRatios: TEMPLATE,
           tableauTopCorrectionPx: TABLEAU_TOP_CORRECTION_PX,
           tableauRowStepCorrectionPx: TABLEAU_ROW_STEP_CORRECTION_PX,
@@ -2297,8 +2419,8 @@
   function confirmShape() {
     if (!detection || detection.passCount < 8) return;
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      version: 37,
-      detector: "opencv-fixed-tableau-template-v37",
+      version: 38,
+      detector: "opencv-fixed-tableau-template-v38",
       imageName: selectedFile ? selectedFile.name : "board image",
       imageWidth: image.naturalWidth,
       imageHeight: image.naturalHeight,
@@ -2364,6 +2486,11 @@
   closeButton.addEventListener("click", () => setDialogOpen(false));
   dialog.querySelectorAll("[data-scan-cancel]")
     .forEach((node) => node.addEventListener("click", () => setDialogOpen(false)));
+  if (startCameraButton) startCameraButton.addEventListener("click", startGuidedCamera);
+  if (cameraCaptureButton) cameraCaptureButton.addEventListener("click", captureGuidedTableau);
+  if (cameraStopButton) cameraStopButton.addEventListener("click", () => stopGuidedCamera({ showPicker: true }));
+  if (cameraCancelButton) cameraCancelButton.addEventListener("click", () => stopGuidedCamera({ showPicker: true }));
+
   pictureInput.addEventListener("change", handleSelection);
   pictureInput.addEventListener("input", handleSelection);
   if (cameraInput) {
