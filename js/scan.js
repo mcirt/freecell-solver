@@ -27,6 +27,10 @@
   const debugText = byId("scan-debug-text");
 
   const SESSION_KEY = "freecellPendingScanV23";
+  const RECOGNITION_LIBRARY_KEY = "freecellRecognitionTemplatesV30";
+  const RANK_LABELS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+  const SUIT_LABELS = ["S", "C", "H", "D"];
+  const SUIT_NAMES = Object.freeze({ S: "♠", C: "♣", H: "♥", D: "♦" });
   const TEMPLATE = Object.freeze({
     columns: 8,
     leftColumns: 4,
@@ -55,6 +59,118 @@
   let detection = null;
   let cvReady = false;
   let debugFrames = {};
+  let recognitionLibrary = loadRecognitionLibrary();
+  let recognitionCards = [];
+
+
+  function loadRecognitionLibrary() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(RECOGNITION_LIBRARY_KEY) || "{}");
+      return {
+        ranks: parsed.ranks && typeof parsed.ranks === "object" ? parsed.ranks : {},
+        suits: parsed.suits && typeof parsed.suits === "object" ? parsed.suits : {}
+      };
+    } catch (error) {
+      console.warn("Could not load recognition templates.", error);
+      return { ranks: {}, suits: {} };
+    }
+  }
+
+  function saveRecognitionLibrary() {
+    localStorage.setItem(RECOGNITION_LIBRARY_KEY, JSON.stringify(recognitionLibrary));
+    updateRecognitionLibrarySummary();
+  }
+
+  function canvasToBinary(canvas) {
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let bits = "";
+    for (let i = 0; i < data.length; i += 4) bits += data[i] < 128 ? "1" : "0";
+    return { width: canvas.width, height: canvas.height, bits };
+  }
+
+  function binarySimilarity(a, b) {
+    if (!a || !b || a.width !== b.width || a.height !== b.height || a.bits.length !== b.bits.length) return 0;
+    let same = 0;
+    let union = 0;
+    let intersection = 0;
+    for (let i = 0; i < a.bits.length; i += 1) {
+      const av = a.bits.charCodeAt(i) === 49;
+      const bv = b.bits.charCodeAt(i) === 49;
+      if (av === bv) same += 1;
+      if (av || bv) union += 1;
+      if (av && bv) intersection += 1;
+    }
+    const agreement = same / Math.max(1, a.bits.length);
+    const iou = intersection / Math.max(1, union);
+    return agreement * 0.35 + iou * 0.65;
+  }
+
+  function bestTemplateMatch(binary, templates, allowedLabels) {
+    let best = null;
+    let second = null;
+    allowedLabels.forEach((label) => {
+      if (!templates[label]) return;
+      const item = { label, score: binarySimilarity(binary, templates[label]) };
+      if (!best || item.score > best.score) {
+        second = best;
+        best = item;
+      } else if (!second || item.score > second.score) {
+        second = item;
+      }
+    });
+    if (!best) return null;
+    const margin = best.score - (second ? second.score : 0);
+    return {
+      label: best.label,
+      score: best.score,
+      margin,
+      confidence: Math.max(0, Math.min(1, best.score * 0.76 + margin * 1.8))
+    };
+  }
+
+  function predictCard(card) {
+    const rank = bestTemplateMatch(card.rankBinary, recognitionLibrary.ranks, RANK_LABELS);
+    const allowedSuits = card.suitColorFamily === "red" ? ["H", "D"] : ["S", "C"];
+    const suit = bestTemplateMatch(card.suitBinary, recognitionLibrary.suits, allowedSuits);
+    return { rank, suit };
+  }
+
+  function optionMarkup(labels, prompt) {
+    return `<option value="">${prompt}</option>` + labels.map((label) => {
+      return `<option value="${label}">${SUIT_NAMES[label] || label}</option>`;
+    }).join("");
+  }
+
+  function updateRecognitionLibrarySummary() {
+    const summary = byId("scan-recognition-library-summary");
+    if (!summary) return;
+    const rankCount = RANK_LABELS.filter((x) => recognitionLibrary.ranks[x]).length;
+    const suitCount = SUIT_LABELS.filter((x) => recognitionLibrary.suits[x]).length;
+    summary.innerHTML =
+      `<strong>Template library:</strong> ${rankCount}/13 ranks · ${suitCount}/4 suits` +
+      `<span>${rankCount === 13 && suitCount === 4 ? "Ready for full automatic recognition." : "Save one clean example of each missing symbol."}</span>`;
+  }
+
+  function refreshAllPredictions() {
+    recognitionCards.forEach((card) => {
+      card.prediction = predictCard(card);
+      card.rankPredictionEl.textContent = card.prediction.rank
+        ? `${card.prediction.rank.label} (${Math.round(card.prediction.rank.confidence * 100)}%)`
+        : "needs template";
+      card.suitPredictionEl.textContent = card.prediction.suit
+        ? `${SUIT_NAMES[card.prediction.suit.label]} (${Math.round(card.prediction.suit.confidence * 100)}%)`
+        : "needs template";
+    });
+    updateRecognitionLibrarySummary();
+  }
+
+  function clearRecognitionLibrary() {
+    if (!window.confirm("Delete all saved rank and suit templates from this browser?")) return;
+    recognitionLibrary = { ranks: {}, suits: {} };
+    saveRecognitionLibrary();
+    refreshAllPredictions();
+  }
 
   function announce(text, kind) {
     if (!message) return;
@@ -99,6 +215,7 @@
   function clearDetection() {
     detection = null;
     debugFrames = {};
+    recognitionCards = [];
     overlay.replaceChildren();
     checksEl.replaceChildren();
     summaryEl.textContent = "No tableau detected yet.";
@@ -611,7 +728,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "fixed-tableau-template-v29",
+          detector: "fixed-tableau-template-v30",
           templateRatios: TEMPLATE,
           tableauTopCorrectionPx: TABLEAU_TOP_CORRECTION_PX,
           tableauRowStepCorrectionPx: TABLEAU_ROW_STEP_CORRECTION_PX,
@@ -844,6 +961,7 @@
 
     ensureCanvas();
     detailsGrid.replaceChildren();
+    recognitionCards = [];
     const recognitionRegions = [];
 
     detection.cardRegions.forEach((region) => {
@@ -858,74 +976,122 @@
 
       const original = makeCropCanvas(crop);
       original.className = "scan-recognition-original";
-      original.setAttribute("aria-label", `${region.id} complete extraction`);
 
       const rankSource = cropCanvasFromSource(rois.rank);
       const suitSource = cropCanvasFromSource(rois.suit);
       const rankMask = normalizedSymbolCanvas(rankSource, 64, 80);
       const suitMask = normalizedSymbolCanvas(suitSource, 64, 80);
+      const rankBinary = canvasToBinary(rankMask.canvas);
+      const suitBinary = canvasToBinary(suitMask.canvas);
 
       const rows = document.createElement("div");
       rows.className = "scan-recognition-rows";
 
-      const originalBox = document.createElement("figure");
-      originalBox.className = "scan-recognition-box scan-recognition-full";
-      originalBox.innerHTML = "<figcaption>Full extraction</figcaption>";
-      originalBox.prepend(original);
+      function box(canvas, label, extraClass) {
+        const figure = document.createElement("figure");
+        figure.className = "scan-recognition-box" + (extraClass ? " " + extraClass : "");
+        const caption = document.createElement("figcaption");
+        caption.textContent = label;
+        figure.append(canvas, caption);
+        return figure;
+      }
 
-      const rankBox = document.createElement("figure");
-      rankBox.className = "scan-recognition-box";
-      rankBox.innerHTML = "<figcaption>Rank ROI</figcaption>";
-      rankBox.prepend(rankSource);
+      rows.append(
+        box(original, "Full extraction", "scan-recognition-full"),
+        box(rankSource, "Rank ROI"),
+        box(suitSource, "Suit ROI"),
+        box(rankMask.canvas, "Rank mask"),
+        box(suitMask.canvas, "Suit mask")
+      );
 
-      const suitBox = document.createElement("figure");
-      suitBox.className = "scan-recognition-box";
-      suitBox.innerHTML = "<figcaption>Suit ROI</figcaption>";
-      suitBox.prepend(suitSource);
-
-      const rankMaskBox = document.createElement("figure");
-      rankMaskBox.className = "scan-recognition-box";
-      rankMaskBox.innerHTML = "<figcaption>Rank mask</figcaption>";
-      rankMaskBox.prepend(rankMask.canvas);
-
-      const suitMaskBox = document.createElement("figure");
-      suitMaskBox.className = "scan-recognition-box";
-      suitMaskBox.innerHTML = "<figcaption>Suit mask</figcaption>";
-      suitMaskBox.prepend(suitMask.canvas);
-
-      rows.append(originalBox, rankBox, suitBox, rankMaskBox, suitMaskBox);
-
-      const status = document.createElement("p");
+      const status = document.createElement("div");
       status.className = "scan-recognition-status";
-      status.innerHTML =
-        `<span>Suit color family: <strong>${suitMask.colorFamily}</strong></span>` +
-        `<span>Rank prediction: <strong>next build</strong></span>` +
-        `<span>Suit prediction: <strong>next build</strong></span>`;
+      status.innerHTML = `<span>Suit color family: <strong>${suitMask.colorFamily}</strong></span>`;
 
-      article.append(header, rows, status);
+      const rankLine = document.createElement("span");
+      rankLine.append("Rank prediction: ");
+      const rankPredictionEl = document.createElement("strong");
+      rankPredictionEl.textContent = "needs template";
+      rankLine.append(rankPredictionEl);
+
+      const suitLine = document.createElement("span");
+      suitLine.append("Suit prediction: ");
+      const suitPredictionEl = document.createElement("strong");
+      suitPredictionEl.textContent = "needs template";
+      suitLine.append(suitPredictionEl);
+
+      status.append(rankLine, suitLine);
+
+      const trainer = document.createElement("div");
+      trainer.className = "scan-template-trainer";
+
+      const rankSelect = document.createElement("select");
+      rankSelect.innerHTML = optionMarkup(RANK_LABELS, "Choose rank");
+      const saveRank = document.createElement("button");
+      saveRank.type = "button";
+      saveRank.textContent = "Save Rank Template";
+      saveRank.addEventListener("click", () => {
+        if (!rankSelect.value) {
+          announce(`Choose the rank for ${region.id} first.`, "error");
+          return;
+        }
+        recognitionLibrary.ranks[rankSelect.value] = rankBinary;
+        saveRecognitionLibrary();
+        refreshAllPredictions();
+        announce(`Saved ${rankSelect.value} rank template from ${region.id}.`, "success");
+      });
+
+      const allowedSuits = suitMask.colorFamily === "red" ? ["H", "D"] : ["S", "C"];
+      const suitSelect = document.createElement("select");
+      suitSelect.innerHTML = optionMarkup(allowedSuits, "Choose suit");
+      const saveSuit = document.createElement("button");
+      saveSuit.type = "button";
+      saveSuit.textContent = "Save Suit Template";
+      saveSuit.addEventListener("click", () => {
+        if (!suitSelect.value) {
+          announce(`Choose the suit for ${region.id} first.`, "error");
+          return;
+        }
+        recognitionLibrary.suits[suitSelect.value] = suitBinary;
+        saveRecognitionLibrary();
+        refreshAllPredictions();
+        announce(`Saved ${SUIT_NAMES[suitSelect.value]} suit template from ${region.id}.`, "success");
+      });
+
+      trainer.append(rankSelect, saveRank, suitSelect, saveSuit);
+      article.append(header, rows, status, trainer);
       detailsGrid.appendChild(article);
 
-      recognitionRegions.push({
+      const card = {
         id: region.id,
         extraction: crop,
         rank: rois.rank,
         suit: rois.suit,
         rankBounds: rankMask.foregroundBounds,
         suitBounds: suitMask.foregroundBounds,
-        suitColorFamily: suitMask.colorFamily
-      });
+        suitColorFamily: suitMask.colorFamily,
+        rankBinary,
+        suitBinary,
+        rankPredictionEl,
+        suitPredictionEl,
+        prediction: null
+      };
+      recognitionCards.push(card);
+      recognitionRegions.push(card);
     });
 
     detection.recognitionRegions = recognitionRegions;
     detailsPanel.hidden = false;
+    updateRecognitionLibrarySummary();
+    refreshAllPredictions();
     detailsPanel.scrollIntoView({ behavior: "smooth", block: "start" });
-    announce("Showing the full extraction, rank ROI, suit ROI, and normalized masks for all 52 cards.", "success");
+    announce("Recognition preview ready. Save one clean example of each rank and suit to train this browser.", "success");
   }
 
   function confirmShape() {
     if (!detection || detection.passCount < 8) return;
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      version: 29,
+      version: 30,
       detector: "opencv-fixed-tableau-template",
       imageName: selectedFile ? selectedFile.name : "board image",
       imageWidth: image.naturalWidth,
@@ -982,6 +1148,9 @@
   resetButton.addEventListener("click", clearDetection);
   detectButton.addEventListener("click", detectTableauShape);
   detailsButton.addEventListener("click", showDetails);
+  const clearTemplatesButton = byId("scan-clear-recognition-templates");
+  if (clearTemplatesButton) clearTemplatesButton.addEventListener("click", clearRecognitionLibrary);
+  updateRecognitionLibrarySummary();
   confirmButton.addEventListener("click", confirmShape);
   if (debugSelect) debugSelect.addEventListener("change", renderDebugView);
 
