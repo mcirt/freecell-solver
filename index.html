@@ -135,8 +135,10 @@
           <button id="scan-confirm-crops" class="scan-primary" type="button">Confirm Tableau Shape</button>
         </div>
         <section id="scan-crop-preview-panel" class="scan-crop-preview-panel" hidden aria-label="Card recognition thumbnail preview">
-          <h3>52 recognition ROI reviews</h3>
-          <p>Each card shows the complete extraction, separate rank and suit regions, and normalized black-and-white masks. This verifies exactly what the upcoming rank and suit template matcher will receive.</p>
+          <h3>52 card-recognition results</h3>
+          <p>The matcher compares each normalized rank and suit mask with examples saved in this browser. For initial training, choose a correct label on a clean card and save it as that symbol’s template.</p>
+          <div id="scan-recognition-library-summary" class="scan-recognition-library-summary"></div>
+          <button id="scan-clear-recognition-templates" class="scan-secondary scan-clear-templates" type="button">Clear Saved Recognition Templates</button>
           <div id="scan-crop-preview-grid" class="scan-crop-preview-grid"></div>
         </section>
       </div>
@@ -147,7 +149,7 @@
   <script src="js/opencv.js?v=21"></script>
   <script src="js/opencv-loader.js?v=21"></script>
   <script src="js/input.js?v=20"></script>
-  <script src="js/scan.js?v=29"></script>
+  <script src="js/scan.js?v=30"></script>
   <script>
     var require = { baseUrl: "js", urlArgs: "v=20" };
   </script>
