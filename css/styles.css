@@ -704,3 +704,54 @@ button, textarea, select, a { font: inherit; }
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+
+/* v30: persistent recognition template trainer */
+.scan-recognition-library-summary {
+  display: grid;
+  gap: 4px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid rgba(86, 240, 224, 0.72);
+  border-radius: 12px;
+  background: #061a38;
+  color: #dffcff;
+}
+.scan-recognition-library-summary strong { color: #58f4e6; }
+.scan-recognition-library-summary span { color: #b8d8eb; font-size: 0.88rem; }
+.scan-clear-templates { width: 100%; margin-bottom: 14px; }
+.scan-template-trainer {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 7px;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(116, 235, 255, 0.24);
+}
+.scan-template-trainer select,
+.scan-template-trainer button {
+  width: 100%;
+  min-height: 42px;
+  border-radius: 8px;
+  font: inherit;
+}
+.scan-template-trainer select {
+  padding: 7px;
+  color: #f4fbff;
+  background: #12376d;
+  border: 1px solid #69ddec;
+}
+.scan-template-trainer button {
+  padding: 8px;
+  color: white;
+  background: #2762a9;
+  border: 1px solid #73dce9;
+  font-weight: 750;
+}
+.scan-recognition-status span strong {
+  color: #54f4e7;
+  text-transform: none;
+}
+@media (min-width: 620px) {
+  .scan-template-trainer { grid-template-columns: 1fr 1fr; }
+}
