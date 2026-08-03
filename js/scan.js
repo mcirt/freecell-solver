@@ -33,6 +33,9 @@
   const RANK_LABELS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
   const SUIT_LABELS = ["S", "C", "H", "D"];
   const SUIT_NAMES = Object.freeze({ S: "♠", C: "♣", H: "♥", D: "♦" });
+  const DISPLAY_RANKS = Object.freeze({ A: "A", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9", "10": "10", J: "J", Q: "Q", K: "K" });
+  const AUTO_ACCEPT_CONFIDENCE = 0.95;
+  const REVIEW_CONFIDENCE = 0.85;
   const TEMPLATE = Object.freeze({
     columns: 8,
     leftColumns: 4,
@@ -63,6 +66,8 @@
   let debugFrames = {};
   let recognitionLibrary = loadRecognitionLibrary();
   let recognitionCards = [];
+  let recognizedBoard = [];
+  let boardValidation = null;
 
 
   function loadRecognitionLibrary() {
@@ -80,13 +85,13 @@
         return result;
       };
       return {
-        version: 33,
+        version: 34,
         ranks: normalizeGroup(raw.ranks),
         suits: normalizeGroup(raw.suits)
       };
     } catch (error) {
       console.warn("Could not load recognition templates.", error);
-      return { version: 33, ranks: {}, suits: {} };
+      return { version: 34, ranks: {}, suits: {} };
     }
   }
 
@@ -209,7 +214,7 @@
   function exportRecognitionLibrary() {
     const payload = {
       format: "freecell-recognition-template-library",
-      version: 33,
+      version: 34,
       createdAt: new Date().toISOString(),
       normalization: { width: 64, height: 80, shiftTolerance: 2 },
       ranks: recognitionLibrary.ranks,
@@ -232,7 +237,7 @@
           throw new Error("This is not a v31 recognition-library export.");
         }
         recognitionLibrary = {
-          version: 33,
+          version: 34,
           ranks: parsed.ranks || {},
           suits: parsed.suits || {}
         };
@@ -292,9 +297,340 @@
     updateRecognitionLibrarySummary();
   }
 
+
+  function confidenceClass(confidence) {
+    if (confidence >= AUTO_ACCEPT_CONFIDENCE) return "good";
+    if (confidence >= REVIEW_CONFIDENCE) return "review";
+    return "bad";
+  }
+
+  function rankSuitKey(rank, suit) {
+    return rank && suit ? `${rank}${suit}` : "";
+  }
+
+  function displayCard(rank, suit) {
+    return `${DISPLAY_RANKS[rank] || "?"}${SUIT_NAMES[suit] || "?"}`;
+  }
+
+  function buildRecognizedBoardFromCards() {
+    const byIdMap = new Map(recognitionCards.map((card) => [card.id, card]));
+    const columns = [];
+
+    for (let col = 1; col <= 8; col += 1) {
+      const count = col <= 4 ? 7 : 6;
+      const column = [];
+      for (let row = 1; row <= count; row += 1) {
+        const id = `C${col}-${row}`;
+        const source = byIdMap.get(id);
+        const rankPrediction = source && source.prediction ? source.prediction.rank : null;
+        const suitPrediction = source && source.prediction ? source.prediction.suit : null;
+
+        column.push({
+          id,
+          column: col,
+          row,
+          rank: rankPrediction ? rankPrediction.label : "",
+          suit: suitPrediction ? suitPrediction.label : "",
+          rankConfidence: rankPrediction ? rankPrediction.confidence : 0,
+          suitConfidence: suitPrediction ? suitPrediction.confidence : 0,
+          confidence: Math.min(
+            rankPrediction ? rankPrediction.confidence : 0,
+            suitPrediction ? suitPrediction.confidence : 0
+          ),
+          rankAccepted: Boolean(rankPrediction && rankPrediction.accepted),
+          suitAccepted: Boolean(suitPrediction && suitPrediction.accepted),
+          manuallyEdited: false
+        });
+      }
+      columns.push(column);
+    }
+
+    recognizedBoard = columns;
+    boardValidation = validateRecognizedBoard(columns);
+    return columns;
+  }
+
+  function validateRecognizedBoard(columns) {
+    const cards = columns.flat();
+    const issues = [];
+    const keyCounts = new Map();
+    const rankCounts = new Map(RANK_LABELS.map((rank) => [rank, 0]));
+    const suitCounts = new Map(SUIT_LABELS.map((suit) => [suit, 0]));
+    let completeCount = 0;
+    let lowConfidenceCount = 0;
+
+    cards.forEach((card) => {
+      if (!card.rank || !card.suit) {
+        issues.push({
+          type: "missing",
+          cardId: card.id,
+          message: `${card.id} is missing a rank or suit.`
+        });
+        return;
+      }
+
+      completeCount += 1;
+      if (card.confidence < REVIEW_CONFIDENCE) lowConfidenceCount += 1;
+
+      rankCounts.set(card.rank, (rankCounts.get(card.rank) || 0) + 1);
+      suitCounts.set(card.suit, (suitCounts.get(card.suit) || 0) + 1);
+
+      const key = rankSuitKey(card.rank, card.suit);
+      keyCounts.set(key, (keyCounts.get(key) || 0) + 1);
+    });
+
+    keyCounts.forEach((count, key) => {
+      if (count > 1) {
+        const ids = cards.filter((card) => rankSuitKey(card.rank, card.suit) === key).map((card) => card.id);
+        issues.push({
+          type: "duplicate",
+          cardIds: ids,
+          message: `${displayCard(key.slice(0, -1), key.slice(-1))} appears ${count} times: ${ids.join(", ")}.`
+        });
+      }
+    });
+
+    RANK_LABELS.forEach((rank) => {
+      const count = rankCounts.get(rank) || 0;
+      if (count !== 4) {
+        issues.push({
+          type: "rank-count",
+          rank,
+          message: `${rank} appears ${count} times; a valid deck needs 4.`
+        });
+      }
+    });
+
+    SUIT_LABELS.forEach((suit) => {
+      const count = suitCounts.get(suit) || 0;
+      if (count !== 13) {
+        issues.push({
+          type: "suit-count",
+          suit,
+          message: `${SUIT_NAMES[suit]} appears ${count} times; a valid deck needs 13.`
+        });
+      }
+    });
+
+    const missingCards = [];
+    RANK_LABELS.forEach((rank) => {
+      SUIT_LABELS.forEach((suit) => {
+        const key = rankSuitKey(rank, suit);
+        if (!keyCounts.get(key)) missingCards.push(displayCard(rank, suit));
+      });
+    });
+
+    const valid = completeCount === 52 && issues.length === 0;
+
+    return {
+      valid,
+      completeCount,
+      lowConfidenceCount,
+      issues,
+      missingCards,
+      rankCounts: Object.fromEntries(rankCounts),
+      suitCounts: Object.fromEntries(suitCounts),
+      uniqueCards: keyCounts.size
+    };
+  }
+
+  function recognizedBoardToSolverText(columns) {
+    // FreeCell Solver expects one tableau column per line, top to bottom.
+    return columns.map((column) => {
+      return column.map((card) => {
+        const rank = card.rank === "10" ? "T" : card.rank;
+        return `${rank}${card.suit}`;
+      }).join(" ");
+    }).join("\n");
+  }
+
+  function tryLoadRecognizedBoardIntoExistingInput(columns) {
+    const boardText = recognizedBoardToSolverText(columns);
+
+    const possibleTextareaIds = [
+      "board-input",
+      "board-text",
+      "deal-input",
+      "board",
+      "freecell-board-input"
+    ];
+
+    const target = possibleTextareaIds
+      .map((id) => byId(id))
+      .find((element) => element && ("value" in element));
+
+    if (target) {
+      target.value = boardText;
+      target.dispatchEvent(new Event("input", { bubbles: true }));
+      target.dispatchEvent(new Event("change", { bubbles: true }));
+      announce("Recognized board loaded into the existing board input.", "success");
+      setDialogOpen(false);
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      return true;
+    }
+
+    navigator.clipboard?.writeText(boardText).then(() => {
+      announce("No board-input field was detected, so the validated board was copied to the clipboard.", "success");
+    }).catch(() => {
+      downloadBlob("recognized-freecell-board.txt", boardText, "text/plain");
+      announce("The validated board was downloaded as a text file.", "success");
+    });
+    return false;
+  }
+
+  function updateBoardCardFromEditor(card, rank, suit) {
+    card.rank = rank;
+    card.suit = suit;
+    card.manuallyEdited = true;
+    card.rankConfidence = 1;
+    card.suitConfidence = 1;
+    card.confidence = 1;
+    card.rankAccepted = true;
+    card.suitAccepted = true;
+
+    boardValidation = validateRecognizedBoard(recognizedBoard);
+    renderRecognizedBoard();
+  }
+
+  function cardIssueIds(validation) {
+    const set = new Set();
+    validation.issues.forEach((issue) => {
+      if (issue.cardId) set.add(issue.cardId);
+      (issue.cardIds || []).forEach((id) => set.add(id));
+    });
+    return set;
+  }
+
+  function renderRecognizedBoard() {
+    const panel = byId("scan-recognized-board-panel");
+    const grid = byId("scan-recognized-board-grid");
+    const status = byId("scan-board-validation-status");
+    const issuesEl = byId("scan-board-validation-issues");
+    const loadButton = byId("scan-load-recognized-board");
+    const copyButton = byId("scan-copy-recognized-board");
+
+    if (!panel || !grid || !status || !issuesEl) return;
+
+    if (!recognizedBoard.length) buildRecognizedBoardFromCards();
+    boardValidation = validateRecognizedBoard(recognizedBoard);
+
+    panel.hidden = false;
+    grid.replaceChildren();
+    issuesEl.replaceChildren();
+
+    const issueIds = cardIssueIds(boardValidation);
+
+    recognizedBoard.forEach((column, columnIndex) => {
+      const columnEl = document.createElement("section");
+      columnEl.className = "scan-board-column";
+
+      const heading = document.createElement("h4");
+      heading.textContent = `C${columnIndex + 1}`;
+      columnEl.appendChild(heading);
+
+      column.forEach((card) => {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "scan-recognized-card";
+
+        const confidenceState = confidenceClass(card.confidence);
+        item.classList.add(`scan-card-${confidenceState}`);
+        if (issueIds.has(card.id)) item.classList.add("scan-card-invalid");
+        if (card.manuallyEdited) item.classList.add("scan-card-edited");
+
+        const label = document.createElement("strong");
+        label.textContent = displayCard(card.rank, card.suit);
+
+        const meta = document.createElement("small");
+        meta.textContent = `${card.id} · ${Math.round(card.confidence * 100)}%`;
+
+        item.append(label, meta);
+        item.addEventListener("click", () => {
+          const rank = window.prompt(
+            `Correct rank for ${card.id} (A, 2-10, J, Q, K):`,
+            card.rank
+          );
+          if (rank === null) return;
+          const normalizedRank = rank.trim().toUpperCase();
+          if (!RANK_LABELS.includes(normalizedRank)) {
+            announce("That rank is not valid.", "error");
+            return;
+          }
+
+          const suit = window.prompt(
+            `Correct suit for ${card.id} (S, C, H, D):`,
+            card.suit
+          );
+          if (suit === null) return;
+          const normalizedSuit = suit.trim().toUpperCase();
+          if (!SUIT_LABELS.includes(normalizedSuit)) {
+            announce("That suit is not valid.", "error");
+            return;
+          }
+
+          updateBoardCardFromEditor(card, normalizedRank, normalizedSuit);
+        });
+
+        columnEl.appendChild(item);
+      });
+
+      grid.appendChild(columnEl);
+    });
+
+    const confidenceMessage = boardValidation.lowConfidenceCount
+      ? `${boardValidation.lowConfidenceCount} card(s) are below 85% confidence.`
+      : "Every recognized card is at least 85% confidence.";
+
+    status.className = `scan-board-validation-status ${boardValidation.valid ? "valid" : "invalid"}`;
+    status.innerHTML = boardValidation.valid
+      ? `<strong>Valid 52-card deck</strong><span>${confidenceMessage}</span>`
+      : `<strong>Board needs review</strong><span>${boardValidation.completeCount}/52 complete · ${boardValidation.uniqueCards} unique cards · ${confidenceMessage}</span>`;
+
+    if (boardValidation.issues.length) {
+      boardValidation.issues.slice(0, 18).forEach((issue) => {
+        const li = document.createElement("li");
+        li.textContent = issue.message;
+        issuesEl.appendChild(li);
+      });
+      if (boardValidation.issues.length > 18) {
+        const li = document.createElement("li");
+        li.textContent = `${boardValidation.issues.length - 18} additional validation issue(s).`;
+        issuesEl.appendChild(li);
+      }
+    } else {
+      const li = document.createElement("li");
+      li.textContent = "No duplicates, missing cards, rank-count errors, or suit-count errors.";
+      issuesEl.appendChild(li);
+    }
+
+    if (loadButton) loadButton.disabled = !boardValidation.valid;
+    if (copyButton) copyButton.disabled = boardValidation.completeCount !== 52;
+  }
+
+  function copyRecognizedBoardText() {
+    if (!recognizedBoard.length) buildRecognizedBoardFromCards();
+    const text = recognizedBoardToSolverText(recognizedBoard);
+    navigator.clipboard?.writeText(text).then(() => {
+      announce("Recognized board copied in FreeCell Solver format.", "success");
+    }).catch(() => {
+      downloadBlob("recognized-freecell-board.txt", text, "text/plain");
+      announce("Recognized board downloaded as text.", "success");
+    });
+  }
+
+  function loadValidatedBoard() {
+    if (!recognizedBoard.length) buildRecognizedBoardFromCards();
+    boardValidation = validateRecognizedBoard(recognizedBoard);
+    if (!boardValidation.valid) {
+      announce("Correct the highlighted cards until the deck is valid.", "error");
+      return;
+    }
+    tryLoadRecognizedBoardIntoExistingInput(recognizedBoard);
+  }
+
   function clearRecognitionLibrary() {
     if (!window.confirm("Delete all saved rank and suit templates from this browser?")) return;
-    recognitionLibrary = { version: 33, ranks: {}, suits: {} };
+    recognitionLibrary = { version: 34, ranks: {}, suits: {} };
     saveRecognitionLibrary();
     refreshAllPredictions();
   }
@@ -351,6 +687,8 @@
     detection = null;
     debugFrames = {};
     recognitionCards = [];
+    recognizedBoard = [];
+    boardValidation = null;
     overlay.replaceChildren();
     checksEl.replaceChildren();
     summaryEl.textContent = "No tableau detected yet.";
@@ -863,7 +1201,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "fixed-tableau-template-v33",
+          detector: "fixed-tableau-template-v34",
           templateRatios: TEMPLATE,
           tableauTopCorrectionPx: TABLEAU_TOP_CORRECTION_PX,
           tableauRowStepCorrectionPx: TABLEAU_ROW_STEP_CORRECTION_PX,
@@ -1581,13 +1919,15 @@
     updateRecognitionLibrarySummary();
     refreshAllPredictions();
     detailsPanel.scrollIntoView({ behavior: "smooth", block: "start" });
-    announce("Recognition preview ready. Save one clean example of each rank and suit to train this browser.", "success");
+    buildRecognizedBoardFromCards();
+    renderRecognizedBoard();
+    announce("Recognition complete. Review the validated 52-card board below.", "success");
   }
 
   function confirmShape() {
     if (!detection || detection.passCount < 8) return;
     sessionStorage.setItem(SESSION_KEY, JSON.stringify({
-      version: 33,
+      version: 34,
       detector: "opencv-fixed-tableau-template",
       imageName: selectedFile ? selectedFile.name : "board image",
       imageWidth: image.naturalWidth,
@@ -1649,6 +1989,24 @@
 
   const clearRankTemplatesButton = byId("scan-clear-rank-templates");
   if (clearRankTemplatesButton) clearRankTemplatesButton.addEventListener("click", clearRankTemplates);
+
+  const showRecognizedBoardButton = byId("scan-show-recognized-board");
+  if (showRecognizedBoardButton) {
+    showRecognizedBoardButton.addEventListener("click", () => {
+      if (!recognitionCards.length) showDetails();
+      else {
+        buildRecognizedBoardFromCards();
+        renderRecognizedBoard();
+        byId("scan-recognized-board-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    });
+  }
+
+  const copyRecognizedBoardButton = byId("scan-copy-recognized-board");
+  if (copyRecognizedBoardButton) copyRecognizedBoardButton.addEventListener("click", copyRecognizedBoardText);
+
+  const loadRecognizedBoardButton = byId("scan-load-recognized-board");
+  if (loadRecognizedBoardButton) loadRecognizedBoardButton.addEventListener("click", loadValidatedBoard);
 
   const exportTemplatesButton = byId("scan-export-recognition-templates");
   if (exportTemplatesButton) exportTemplatesButton.addEventListener("click", exportRecognitionLibrary);
