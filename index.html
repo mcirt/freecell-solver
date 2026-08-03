@@ -136,9 +136,16 @@
         </div>
         <section id="scan-crop-preview-panel" class="scan-crop-preview-panel" hidden aria-label="Card recognition thumbnail preview">
           <h3>52 card-recognition results</h3>
-          <p>The matcher compares each normalized rank and suit mask with examples saved in this browser. For initial training, choose a correct label on a clean card and save it as that symbol’s template.</p>
+          <p>Build a high-accuracy library by saving 3–5 clean examples of each rank and suit. The matcher checks every example with ±2-pixel alignment tolerance and marks weak predictions for review.</p>
           <div id="scan-recognition-library-summary" class="scan-recognition-library-summary"></div>
-          <button id="scan-clear-recognition-templates" class="scan-secondary scan-clear-templates" type="button">Clear Saved Recognition Templates</button>
+          <div class="scan-library-actions">
+            <button id="scan-export-recognition-templates" class="scan-secondary" type="button">Export Library JSON</button>
+            <label class="scan-secondary scan-import-label">
+              Import Library JSON
+              <input id="scan-import-recognition-templates" type="file" accept="application/json,.json">
+            </label>
+            <button id="scan-clear-recognition-templates" class="scan-secondary scan-clear-templates" type="button">Clear Saved Templates</button>
+          </div>
           <div id="scan-crop-preview-grid" class="scan-crop-preview-grid"></div>
         </section>
       </div>
@@ -149,7 +156,7 @@
   <script src="js/opencv.js?v=21"></script>
   <script src="js/opencv-loader.js?v=21"></script>
   <script src="js/input.js?v=20"></script>
-  <script src="js/scan.js?v=30"></script>
+  <script src="js/scan.js?v=31"></script>
   <script>
     var require = { baseUrl: "js", urlArgs: "v=20" };
   </script>
