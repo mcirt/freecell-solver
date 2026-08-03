@@ -132,8 +132,26 @@
           <button id="scan-reset-calibration" class="scan-secondary" type="button">Reset Calibration</button>
           <button id="scan-detect-tops" class="scan-secondary" type="button">Detect Tableau Shape</button>
           <button id="scan-preview-crops" class="scan-secondary" type="button">Review 52 Recognition ROIs</button>
+          <button id="scan-show-recognized-board" class="scan-secondary" type="button">Show Recognized Board</button>
           <button id="scan-confirm-crops" class="scan-primary" type="button">Confirm Tableau Shape</button>
         </div>
+
+        <section id="scan-recognized-board-panel" class="scan-recognized-board-panel" hidden aria-label="Recognized FreeCell board">
+          <h3>Recognized 52-card board</h3>
+          <p>Cards are arranged by tableau column. Green is at least 95% confidence, yellow is 85–94%, and red is below 85% or conflicts with deck validation. Tap any card to correct it.</p>
+
+          <div id="scan-board-validation-status" class="scan-board-validation-status"></div>
+          <div id="scan-recognized-board-grid" class="scan-recognized-board-grid"></div>
+
+          <h4>Deck validation</h4>
+          <ul id="scan-board-validation-issues" class="scan-board-validation-issues"></ul>
+
+          <div class="scan-board-actions">
+            <button id="scan-copy-recognized-board" class="scan-secondary" type="button">Copy Board Text</button>
+            <button id="scan-load-recognized-board" class="scan-primary" type="button" disabled>Load Valid Board and Solve</button>
+          </div>
+        </section>
+
         <section id="scan-crop-preview-panel" class="scan-crop-preview-panel" hidden aria-label="Card recognition thumbnail preview">
           <h3>52 card-recognition results</h3>
           <p>Build a high-accuracy library by saving 3–5 clean examples of each rank and suit. The matcher checks every example with ±2-pixel alignment tolerance and marks weak predictions for review.</p>
@@ -157,7 +175,7 @@
   <script src="js/opencv.js?v=21"></script>
   <script src="js/opencv-loader.js?v=21"></script>
   <script src="js/input.js?v=20"></script>
-  <script src="js/scan.js?v=33"></script>
+  <script src="js/scan.js?v=34"></script>
   <script>
     var require = { baseUrl: "js", urlArgs: "v=20" };
   </script>
