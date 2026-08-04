@@ -36,10 +36,17 @@
       <div class="move-description" id="move-description">Starting position</div>
       <strong id="move-counter" class="panel-counter">Move 0 of 0</strong>
       <div class="speech-controls" aria-label="Spoken move controls">
-        <label class="speech-toggle">
-          <input id="auto-speak" type="checkbox" checked>
-          <span>Speak each move</span>
-        </label>
+        <div class="speech-toggle-row">
+          <label class="speech-toggle">
+            <input id="auto-speak" type="checkbox" checked>
+            <span>Speak each move</span>
+          </label>
+          <label class="speech-toggle">
+            <input id="show-captions" type="checkbox" checked>
+            <span>Show captions</span>
+          </label>
+        </div>
+        <div id="spoken-caption" class="spoken-caption" aria-live="polite"></div>
         <div class="speech-buttons">
           <button id="enable-voice" class="enable-voice" type="button">🔊 Enable Voice</button>
           <button id="speak-move" type="button">🔊 Speak Move</button>
@@ -85,6 +92,6 @@
   <script src="js/board.js"></script>
   <script src="js/animation.js"></script>
   <script src="js/controls.js"></script>
-  <script src="js/solution.js"></script>
+  <script src="js/solution.js?v=46"></script>
 </body>
 </html>
