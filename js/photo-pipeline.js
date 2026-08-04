@@ -1,10 +1,12 @@
 (function (global) {
   "use strict";
 
-  const TABLEAU = Object.freeze({
+  const TEMPLATE = Object.freeze({
     columns: 8,
+    leftColumns: 4,
     rowStepToWidth: 0.072,
-    fullCardHeightToWidth: 0.165
+    fullCardHeightToWidth: 0.165,
+    laneWidthToPitch: 0.94
   });
 
   function clamp(value, min, max) {
@@ -12,14 +14,23 @@
   }
 
   function median(values) {
-    if (!values.length) return null;
+    if (!values.length) return 0;
     const sorted = values.slice().sort((a, b) => a - b);
     const middle = Math.floor(sorted.length / 2);
     return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
   }
 
-  function medianAbsoluteDeviation(values, center) {
-    if (!values.length || center == null) return null;
+  function percentile(values, p) {
+    if (!values.length) return 0;
+    const sorted = values.slice().sort((a, b) => a - b);
+    const index = clamp((sorted.length - 1) * p, 0, sorted.length - 1);
+    const lower = Math.floor(index);
+    const upper = Math.ceil(index);
+    if (lower === upper) return sorted[lower];
+    return sorted[lower] + (sorted[upper] - sorted[lower]) * (index - lower);
+  }
+
+  function mad(values, center) {
     return median(values.map((value) => Math.abs(value - center)));
   }
 
@@ -44,177 +55,227 @@
     return canvas;
   }
 
-  function projectionBounds(mask, minRowCoverage, minColCoverage) {
-    const rows = [];
-    const cols = [];
-    const rowMin = Math.max(1, Math.round(mask.cols * minRowCoverage));
-    const colMin = Math.max(1, Math.round(mask.rows * minColCoverage));
-
-    for (let y = 0; y < mask.rows; y += 1) {
-      let count = 0;
-      const row = mask.ucharPtr(y, 0);
-      for (let x = 0; x < mask.cols; x += 1) if (row[x] > 0) count += 1;
-      if (count >= rowMin) rows.push(y);
-    }
-
-    for (let x = 0; x < mask.cols; x += 1) {
-      let count = 0;
-      for (let y = 0; y < mask.rows; y += 1) if (mask.ucharPtr(y, x)[0] > 0) count += 1;
-      if (count >= colMin) cols.push(x);
-    }
-
-    if (!rows.length || !cols.length) return null;
-    return {
-      x: cols[0],
-      y: rows[0],
-      width: cols[cols.length - 1] - cols[0] + 1,
-      height: rows[rows.length - 1] - rows[0] + 1,
-      bottom: rows[rows.length - 1]
-    };
-  }
-
-  function rowEdges(mask, y, minRun) {
+  function rowEvidence(mask, y) {
     const row = mask.ucharPtr(y, 0);
     let left = -1;
     let right = -1;
+    let white = 0;
+    let longestRun = 0;
     let run = 0;
 
     for (let x = 0; x < mask.cols; x += 1) {
-      run = row[x] > 0 ? run + 1 : 0;
-      if (run >= minRun) {
-        left = x - run + 1;
-        break;
+      if (row[x] > 0) {
+        if (left < 0) left = x;
+        right = x;
+        white += 1;
+        run += 1;
+        if (run > longestRun) longestRun = run;
+      } else {
+        run = 0;
       }
     }
 
-    run = 0;
-    for (let x = mask.cols - 1; x >= 0; x -= 1) {
-      run = row[x] > 0 ? run + 1 : 0;
-      if (run >= minRun) {
-        right = x + run - 1;
-        break;
-      }
-    }
-
-    return left >= 0 && right > left ? { left, right } : null;
+    return {
+      y,
+      left,
+      right,
+      span: left >= 0 ? right - left + 1 : 0,
+      white,
+      whiteRatio: white / Math.max(1, mask.cols),
+      longestRun
+    };
   }
 
-  function measureTableauEdges(mask, bounds) {
-    if (!bounds) return null;
-    const minRun = Math.max(2, Math.round(mask.cols * 0.008));
-    const yStart = clamp(Math.round(bounds.y + bounds.height * 0.08), 0, mask.rows - 1);
-    const yEnd = clamp(Math.round(bounds.y + bounds.height * 0.82), yStart, mask.rows - 1);
-    const step = Math.max(1, Math.round((yEnd - yStart + 1) / 36));
-    const samples = [];
+  function robustTableauEdges(mask) {
+    const minimumSpan = mask.cols * 0.52;
+    const minimumWhite = mask.cols * 0.10;
+    const rawRows = [];
 
-    for (let y = yStart; y <= yEnd; y += step) {
-      const edges = rowEdges(mask, y, minRun);
-      if (!edges) continue;
-      const width = edges.right - edges.left + 1;
-      if (width >= mask.cols * 0.48) samples.push({ y, ...edges, width });
+    for (let y = 0; y < mask.rows; y += 1) {
+      const evidence = rowEvidence(mask, y);
+      if (evidence.span >= minimumSpan && evidence.white >= minimumWhite) rawRows.push(evidence);
     }
 
-    if (samples.length < 5) return null;
-    const widths = samples.map((sample) => sample.width);
-    const widthMedian = median(widths);
-    const filtered = samples.filter((sample) => Math.abs(sample.width - widthMedian) <= Math.max(8, widthMedian * 0.16));
-    if (filtered.length < 5) return null;
+    if (rawRows.length < Math.max(12, mask.rows * 0.035)) {
+      return { pass: false, reason: "insufficient stable edge evidence", rawRows, acceptedRows: [] };
+    }
 
-    const leftValues = filtered.map((sample) => sample.left);
-    const rightValues = filtered.map((sample) => sample.right);
-    const left = median(leftValues);
-    const right = median(rightValues);
+    const rawLeft = median(rawRows.map((row) => row.left));
+    const rawRight = median(rawRows.map((row) => row.right));
+    const leftMad = Math.max(2, mad(rawRows.map((row) => row.left), rawLeft));
+    const rightMad = Math.max(2, mad(rawRows.map((row) => row.right), rawRight));
+    const tolerance = Math.max(5, mask.cols * 0.018, leftMad * 3.5, rightMad * 3.5);
+
+    let acceptedRows = rawRows.filter((row) =>
+      Math.abs(row.left - rawLeft) <= tolerance &&
+      Math.abs(row.right - rawRight) <= tolerance
+    );
+
+    if (acceptedRows.length < Math.max(10, rawRows.length * 0.35)) {
+      return { pass: false, reason: "edge rows disagree too widely", rawRows, acceptedRows };
+    }
+
+    const measuredLeft = Math.round(median(acceptedRows.map((row) => row.left)));
+    const measuredRight = Math.round(median(acceptedRows.map((row) => row.right)));
+    const measuredTop = Math.round(percentile(acceptedRows.map((row) => row.y), 0.03));
+    const evidenceBottom = Math.round(percentile(acceptedRows.map((row) => row.y), 0.97));
+    const width = measuredRight - measuredLeft + 1;
+
+    // Re-check rows against the final edges. This rejects isolated bezel highlights
+    // and keeps measurement, overlay, and crop in one work-canvas coordinate space.
+    const finalTolerance = Math.max(5, width * 0.025);
+    acceptedRows = acceptedRows.filter((row) =>
+      Math.abs(row.left - measuredLeft) <= finalTolerance &&
+      Math.abs(row.right - measuredRight) <= finalTolerance
+    );
+
+    const leftSpread = mad(acceptedRows.map((row) => row.left), measuredLeft);
+    const rightSpread = mad(acceptedRows.map((row) => row.right), measuredRight);
+    const stableFraction = acceptedRows.length / Math.max(1, rawRows.length);
+    const widthRatio = width / mask.cols;
+    const expectedHeight = width * (6 * TEMPLATE.rowStepToWidth + TEMPLATE.fullCardHeightToWidth);
+    const measuredBottom = Math.min(mask.rows - 1, Math.round(measuredTop + expectedHeight));
+    const verticalEvidence = Math.max(0, Math.min(1, (evidenceBottom - measuredTop) / Math.max(1, expectedHeight)));
+    const spreadScore = Math.max(0, 1 - ((leftSpread + rightSpread) / Math.max(1, width * 0.05)));
+    const widthScore = Math.max(0, 1 - Math.abs(widthRatio - 0.88) / 0.32);
+    const confidence = clamp(
+      stableFraction * 0.38 + spreadScore * 0.30 + widthScore * 0.18 + verticalEvidence * 0.14,
+      0,
+      1
+    );
+
+    let reason = "geometry locked";
+    let pass = true;
+    if (widthRatio < 0.58 || widthRatio > 0.995) {
+      pass = false;
+      reason = "measured tableau width is implausible";
+    } else if (acceptedRows.length < 14) {
+      pass = false;
+      reason = "too few reliable scanlines";
+    } else if (confidence < 0.56) {
+      pass = false;
+      reason = "edge confidence is below the handoff threshold";
+    }
+
+    return {
+      pass,
+      reason,
+      rawRows,
+      acceptedRows,
+      measuredLeft,
+      measuredRight,
+      measuredTop,
+      measuredBottom,
+      evidenceBottom,
+      width,
+      widthRatio,
+      leftSpread,
+      rightSpread,
+      stableFraction,
+      verticalEvidence,
+      confidence
+    };
+  }
+
+  function templateGeometry(edges) {
+    if (!edges || !edges.width) return null;
+    const left = edges.measuredLeft;
+    const right = edges.measuredRight;
+    const top = edges.measuredTop;
+    const width = right - left + 1;
+    const pitch = width / TEMPLATE.columns;
+    const laneWidth = pitch * TEMPLATE.laneWidthToPitch;
+    const rowStep = width * TEMPLATE.rowStepToWidth;
+    const fullCardHeight = width * TEMPLATE.fullCardHeightToWidth;
+    const leftHeight = 6 * rowStep + fullCardHeight;
+    const rightHeight = 5 * rowStep + fullCardHeight;
     return {
       left,
       right,
-      width: right - left + 1,
-      sampleCount: filtered.length,
-      rawSampleCount: samples.length,
-      leftMad: medianAbsoluteDeviation(leftValues, left),
-      rightMad: medianAbsoluteDeviation(rightValues, right),
-      scanlineStart: yStart,
-      scanlineEnd: yEnd,
-      samples: filtered
-    };
-  }
-
-  function tableauTemplate(left, top, width) {
-    const pitch = width / TABLEAU.columns;
-    const rowStep = width * TABLEAU.rowStepToWidth;
-    const fullCardHeight = width * TABLEAU.fullCardHeightToWidth;
-    const height = 6 * rowStep + fullCardHeight;
-    return {
-      left,
-      right: left + width - 1,
       top,
-      bottom: top + height - 1,
       width,
-      height,
       pitch,
-      columnWidth: pitch
+      laneWidth,
+      rowStep,
+      fullCardHeight,
+      bottomLeft: top + leftHeight,
+      bottomRight: top + rightHeight,
+      centers: Array.from({ length: 8 }, (_, i) => left + (i + 0.5) * pitch)
     };
   }
 
-  function confidenceFor(mask, bounds, measured, template, cleanCoverage) {
-    if (!bounds || !measured || !template) {
-      return { score: 0, pass: false, reasons: ["Insufficient stable edge evidence"] };
-    }
-
-    const reasons = [];
-    const widthRatio = measured.width / mask.cols;
-    const madRatio = ((measured.leftMad || 0) + (measured.rightMad || 0)) / Math.max(1, measured.width);
-    const yError = bounds.bottom - template.bottom;
-    const yErrorRatio = Math.abs(yError) / Math.max(1, template.height);
-    const sampleScore = clamp(measured.sampleCount / 20, 0, 1);
-    const stabilityScore = clamp(1 - madRatio / 0.035, 0, 1);
-    const widthScore = clamp(1 - Math.abs(widthRatio - 0.82) / 0.34, 0, 1);
-    const heightScore = clamp(1 - yErrorRatio / 0.28, 0, 1);
-    const coverageScore = clamp(1 - Math.abs(cleanCoverage - 0.24) / 0.24, 0, 1);
-    const score = 0.28 * sampleScore + 0.30 * stabilityScore + 0.18 * widthScore + 0.16 * heightScore + 0.08 * coverageScore;
-
-    if (measured.sampleCount < 8) reasons.push("Too few reliable scanlines");
-    if (madRatio > 0.04) reasons.push("Left/right edges vary too much");
-    if (widthRatio < 0.52 || widthRatio > 0.99) reasons.push("Measured tableau width is implausible");
-    if (yErrorRatio > 0.34) reasons.push("Measured height disagrees with the canonical tableau");
-    if (cleanCoverage < 0.035 || cleanCoverage > 0.62) reasons.push("Card-mask coverage is implausible");
-
-    return {
-      score,
-      pass: score >= 0.62 && reasons.length === 0,
-      reasons,
-      metrics: { widthRatio, madRatio, yError, yErrorRatio, sampleScore, stabilityScore, widthScore, heightScore, coverageScore }
-    };
-  }
-
-  function drawGeometryOverlay(sourceCanvas, geometry) {
+  function drawGeometryOverlay(sourceCanvas, workCanvas, scale, edges, geometry, candidate) {
     const canvas = document.createElement("canvas");
     canvas.width = sourceCanvas.width;
     canvas.height = sourceCanvas.height;
     const ctx = canvas.getContext("2d");
     ctx.drawImage(sourceCanvas, 0, 0);
-    if (!geometry) return canvas;
 
-    const lineWidth = Math.max(3, Math.round(canvas.width * 0.004));
+    if (!edges || !geometry) return canvas;
+
+    const toOriginal = (value) => value / scale;
+    const top = toOriginal(geometry.top);
+    const bottom = toOriginal(Math.max(geometry.bottomLeft, geometry.bottomRight));
+    const measuredLeft = toOriginal(edges.measuredLeft);
+    const measuredRight = toOriginal(edges.measuredRight);
+    const templateLeft = toOriginal(geometry.left);
+    const templateRight = toOriginal(geometry.right);
+
     ctx.save();
-    ctx.lineWidth = lineWidth;
-    ctx.font = `${Math.max(14, Math.round(canvas.width * 0.018))}px sans-serif`;
+    ctx.lineWidth = Math.max(3, Math.round(canvas.width * 0.004));
 
-    ctx.strokeStyle = "#ffcc00";
+    // Candidate crop boundary.
+    if (candidate) {
+      ctx.strokeStyle = "rgba(0, 243, 255, 0.9)";
+      ctx.setLineDash([12, 8]);
+      ctx.strokeRect(candidate.x, candidate.y, candidate.width, candidate.height);
+      ctx.setLineDash([]);
+    }
+
+    // Measured edges: green. Template edges: blue. They should coincide.
+    ctx.strokeStyle = "#39ff88";
     ctx.beginPath();
-    ctx.moveTo(geometry.measuredLeft, geometry.top);
-    ctx.lineTo(geometry.measuredLeft, geometry.bottom);
-    ctx.moveTo(geometry.measuredRight, geometry.top);
-    ctx.lineTo(geometry.measuredRight, geometry.bottom);
+    ctx.moveTo(measuredLeft, top);
+    ctx.lineTo(measuredLeft, bottom);
+    ctx.moveTo(measuredRight, top);
+    ctx.lineTo(measuredRight, bottom);
     ctx.stroke();
 
-    ctx.strokeStyle = "#00f3ff";
-    ctx.strokeRect(geometry.templateLeft, geometry.templateTop, geometry.templateWidth, geometry.templateHeight);
+    ctx.strokeStyle = "#42a5ff";
+    ctx.lineWidth = Math.max(1.5, Math.round(canvas.width * 0.002));
+    ctx.beginPath();
+    ctx.moveTo(templateLeft + 2, top);
+    ctx.lineTo(templateLeft + 2, bottom);
+    ctx.moveTo(templateRight - 2, top);
+    ctx.lineTo(templateRight - 2, bottom);
+    ctx.stroke();
 
-    ctx.fillStyle = "rgba(0,0,0,0.72)";
-    ctx.fillRect(8, 8, Math.min(canvas.width - 16, 430), 76);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText(`X error: ${geometry.xError.toFixed(1)} px`, 18, 34);
-    ctx.fillText(`Y error: ${geometry.yError.toFixed(1)} px`, 18, 60);
+    // Canonical eight-column geometry, anchored directly to measured edges.
+    ctx.strokeStyle = "rgba(255, 213, 74, 0.92)";
+    ctx.lineWidth = Math.max(2, Math.round(canvas.width * 0.0025));
+    for (let i = 0; i <= TEMPLATE.columns; i += 1) {
+      const x = toOriginal(geometry.left + i * geometry.pitch);
+      const columnBottom = toOriginal(i <= 4 ? geometry.bottomLeft : geometry.bottomRight);
+      ctx.beginPath();
+      ctx.moveTo(x, top);
+      ctx.lineTo(x, columnBottom);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.moveTo(templateLeft, top);
+    ctx.lineTo(templateRight, top);
+    ctx.stroke();
+
+    ctx.font = `700 ${Math.max(18, Math.round(canvas.width * 0.024))}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+    ctx.textBaseline = "top";
+    const label = edges.pass
+      ? `GEOMETRY PASS  ${(edges.confidence * 100).toFixed(0)}%`
+      : `GEOMETRY HOLD  ${(edges.confidence * 100).toFixed(0)}%`;
+    const labelWidth = ctx.measureText(label).width + 20;
+    ctx.fillStyle = "rgba(0, 0, 0, 0.72)";
+    ctx.fillRect(10, 10, labelWidth, Math.max(34, canvas.width * 0.038));
+    ctx.fillStyle = edges.pass ? "#79ffae" : "#ffd27a";
+    ctx.fillText(label, 20, 16);
     ctx.restore();
     return canvas;
   }
@@ -223,7 +284,14 @@
     const cv = global.cv;
     if (!cv || !sourceCanvas) throw new Error("OpenCV and a captured photo are required.");
 
-    const settings = Object.assign({ brightness: 116, saturation: 150, cleanup: 2.2 }, options || {});
+    const settings = Object.assign({
+      brightness: 116,
+      saturation: 150,
+      cleanup: 2.2,
+      safetyPaddingX: 0.025,
+      safetyPaddingY: 0.035
+    }, options || {});
+
     const maxWidth = 1000;
     const scale = Math.min(1, maxWidth / sourceCanvas.width);
     const workWidth = Math.max(320, Math.round(sourceCanvas.width * scale));
@@ -234,6 +302,7 @@
       src = cv.imread(sourceCanvas);
       work = new cv.Mat();
       cv.resize(src, work, new cv.Size(workWidth, workHeight), 0, 0, cv.INTER_AREA);
+
       rgb = new cv.Mat();
       cv.cvtColor(work, rgb, cv.COLOR_RGBA2RGB);
       hsv = new cv.Mat();
@@ -262,97 +331,113 @@
       cv.morphologyEx(clean, connected, cv.MORPH_CLOSE, kernelConnect);
       cv.dilate(connected, connected, kernelConnect, new cv.Point(-1, -1), 1);
 
-      const bounds = projectionBounds(clean, 0.20, 0.12);
-      const measured = measureTableauEdges(clean, bounds);
-      const template = measured && bounds ? tableauTemplate(measured.left, bounds.y, measured.width) : null;
-      const cleanPixels = cv.countNonZero(clean);
-      const strictPixels = cv.countNonZero(strict);
-      const cleanCoverage = cleanPixels / (clean.rows * clean.cols);
-      const confidence = confidenceFor(clean, bounds, measured, template, cleanCoverage);
+      // Geometry lock: measure the cleaned mask directly. There is no contour-first
+      // horizontal search and no second contour lookup after padding.
+      const edges = robustTableauEdges(clean);
+      const geometry = edges.pass || edges.width ? templateGeometry(edges) : null;
 
-      let workCandidate = null;
       let originalCandidate = null;
       let candidateCanvas = null;
-      let overlayCanvas = drawGeometryOverlay(sourceCanvas, null);
-      let geometry = null;
-
-      if (template) {
-        workCandidate = {
-          x: clamp(Math.round(template.left), 0, workWidth - 1),
-          y: clamp(Math.round(template.top), 0, workHeight - 1),
-          width: clamp(Math.round(template.width), 1, workWidth),
-          height: clamp(Math.round(template.height), 1, workHeight)
+      if (geometry) {
+        const padX = Math.round(geometry.width * settings.safetyPaddingX);
+        const padY = Math.round(geometry.width * settings.safetyPaddingY);
+        const workRect = {
+          x: clamp(geometry.left - padX, 0, workWidth - 1),
+          y: clamp(geometry.top - padY, 0, workHeight - 1),
+          width: 0,
+          height: 0
         };
-        workCandidate.width = clamp(workCandidate.width, 1, workWidth - workCandidate.x);
-        workCandidate.height = clamp(workCandidate.height, 1, workHeight - workCandidate.y);
+        const desiredRight = clamp(geometry.right + padX, workRect.x + 1, workWidth);
+        const desiredBottom = clamp(Math.max(geometry.bottomLeft, geometry.bottomRight) + padY, workRect.y + 1, workHeight);
+        workRect.width = desiredRight - workRect.x;
+        workRect.height = desiredBottom - workRect.y;
 
         originalCandidate = {
-          x: Math.round(workCandidate.x / scale),
-          y: Math.round(workCandidate.y / scale),
-          width: Math.round(workCandidate.width / scale),
-          height: Math.round(workCandidate.height / scale)
+          x: Math.round(workRect.x / scale),
+          y: Math.round(workRect.y / scale),
+          width: Math.round(workRect.width / scale),
+          height: Math.round(workRect.height / scale)
         };
         originalCandidate.x = clamp(originalCandidate.x, 0, sourceCanvas.width - 1);
         originalCandidate.y = clamp(originalCandidate.y, 0, sourceCanvas.height - 1);
         originalCandidate.width = clamp(originalCandidate.width, 1, sourceCanvas.width - originalCandidate.x);
         originalCandidate.height = clamp(originalCandidate.height, 1, sourceCanvas.height - originalCandidate.y);
-
-        geometry = {
-          measuredLeft: measured.left / scale,
-          measuredRight: measured.right / scale,
-          templateLeft: template.left / scale,
-          templateTop: template.top / scale,
-          templateWidth: template.width / scale,
-          templateHeight: template.height / scale,
-          top: template.top / scale,
-          bottom: Math.min(sourceCanvas.height - 1, template.bottom / scale),
-          xError: ((measured.left - template.left) + (measured.right - template.right)) / (2 * scale),
-          yError: bounds ? (bounds.bottom - template.bottom) / scale : 0
-        };
-        overlayCanvas = drawGeometryOverlay(sourceCanvas, geometry);
-        candidateCanvas = cropCanvas(sourceCanvas, originalCandidate);
+        if (edges.pass) candidateCanvas = cropCanvas(sourceCanvas, originalCandidate);
       }
+
+      const strictCanvas = canvasFromMat(cv, strict);
+      const cleanCanvas = canvasFromMat(cv, clean);
+      const connectedCanvas = canvasFromMat(cv, connected);
+      const overlayCanvas = drawGeometryOverlay(sourceCanvas, canvasFromMat(cv, work), scale, edges, geometry, originalCandidate);
+
+      const strictCoverage = cv.countNonZero(strict) / (strict.rows * strict.cols);
+      const cleanCoverage = cv.countNonZero(clean) / (clean.rows * clean.cols);
+      const maskQuality = clamp(
+        (1 - Math.abs(cleanCoverage - 0.42) / 0.42) * 0.45 +
+        (edges.stableFraction || 0) * 0.35 +
+        (edges.verticalEvidence || 0) * 0.20,
+        0,
+        1
+      );
+
+      const diagnostics = {
+        version: "v40-geometry-lock",
+        coordinateSpace: "single work-crop space",
+        pass: Boolean(edges.pass),
+        reason: edges.reason,
+        source: { width: sourceCanvas.width, height: sourceCanvas.height },
+        workCrop: { width: workWidth, height: workHeight, scale },
+        thresholds: {
+          brightness: settings.brightness,
+          saturation: settings.saturation,
+          cleanup: settings.cleanup
+        },
+        mask: {
+          strictCoverage,
+          cleanCoverage,
+          quality: maskQuality
+        },
+        measured: geometry ? {
+          left: edges.measuredLeft,
+          right: edges.measuredRight,
+          top: edges.measuredTop,
+          bottom: edges.measuredBottom,
+          width: edges.width,
+          acceptedScanlines: edges.acceptedRows.length,
+          candidateScanlines: edges.rawRows.length,
+          leftSpreadPx: Number(edges.leftSpread.toFixed(2)),
+          rightSpreadPx: Number(edges.rightSpread.toFixed(2)),
+          confidence: edges.confidence
+        } : null,
+        template: geometry ? {
+          left: geometry.left,
+          right: geometry.right,
+          top: geometry.top,
+          width: geometry.width,
+          columnWidth: geometry.pitch,
+          xErrorPx: geometry.left - edges.measuredLeft,
+          rightErrorPx: geometry.right - edges.measuredRight,
+          yErrorPx: geometry.top - edges.measuredTop
+        } : null,
+        handoff: {
+          allowed: Boolean(candidateCanvas),
+          candidate: originalCandidate,
+          gate: "confidence >= 56%, plausible width, and at least 14 stable scanlines"
+        }
+      };
 
       return {
         settings,
-        strictCanvas: canvasFromMat(cv, strict),
-        cleanCanvas: canvasFromMat(cv, clean),
-        connectedCanvas: canvasFromMat(cv, connected),
+        strictCanvas,
+        cleanCanvas,
+        connectedCanvas,
         overlayCanvas,
         candidateCanvas,
         candidate: originalCandidate,
-        confidence,
-        diagnostics: {
-          version: "v40-edge-first-geometry-lock",
-          coordinateSpace: "clean-mask crop coordinates",
-          sourceWidth: sourceCanvas.width,
-          sourceHeight: sourceCanvas.height,
-          workWidth,
-          workHeight,
-          scale,
-          brightness: settings.brightness,
-          saturation: settings.saturation,
-          cleanup: settings.cleanup,
-          strictCoverage: strictPixels / (strict.rows * strict.cols),
-          cleanCoverage,
-          projectionBounds: bounds,
-          measuredEdges: measured ? {
-            left: measured.left,
-            right: measured.right,
-            width: measured.width,
-            sampleCount: measured.sampleCount,
-            rawSampleCount: measured.rawSampleCount,
-            leftMad: measured.leftMad,
-            rightMad: measured.rightMad,
-            scanlineStart: measured.scanlineStart,
-            scanlineEnd: measured.scanlineEnd
-          } : null,
-          canonicalTemplate: template,
-          xErrorPx: geometry ? geometry.xError : null,
-          yErrorPx: geometry ? geometry.yError : null,
-          candidate: originalCandidate,
-          confidence
-        }
+        pass: Boolean(edges.pass),
+        confidence: edges.confidence || 0,
+        maskQuality,
+        diagnostics
       };
     } finally {
       [src, work, rgb, hsv, strict, clean, connected, kernelOpen, kernelClose, kernelConnect].forEach((mat) => {

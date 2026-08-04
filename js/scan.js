@@ -807,19 +807,43 @@
       copyCanvas(guidedMaskAnalysis.cleanCanvas, guidedCleanCanvas);
       copyCanvas(guidedMaskAnalysis.connectedCanvas, guidedConnectedCanvas);
       copyCanvas(guidedMaskAnalysis.overlayCanvas, guidedOverlayCanvas);
-      if (guidedMaskDebug) guidedMaskDebug.textContent = JSON.stringify(guidedMaskAnalysis.diagnostics, null, 2);
-      const gatePassed = Boolean(guidedMaskAnalysis.candidateCanvas && guidedMaskAnalysis.confidence && guidedMaskAnalysis.confidence.pass);
-      if (guidedUseCandidateButton) guidedUseCandidateButton.disabled = !gatePassed;
-      if (gatePassed) {
-        const percent = Math.round(guidedMaskAnalysis.confidence.score * 100);
-        setGuidedMaskStatus(`Geometry lock passed (${percent}% confidence). The measured yellow edges and cyan canonical template are ready for the screenshot scanner.`, "ready");
-      } else if (guidedMaskAnalysis.candidateCanvas) {
-        const reasons = guidedMaskAnalysis.confidence && guidedMaskAnalysis.confidence.reasons.length
-          ? guidedMaskAnalysis.confidence.reasons.join("; ")
-          : "Geometry confidence is below the transfer threshold";
-        setGuidedMaskStatus(`Confidence gate blocked transfer: ${reasons}. Adjust the mask controls, retake the photo, or deliberately use the full bracket crop.`, "warning");
+      if (guidedMaskDebug) {
+        const d = guidedMaskAnalysis.diagnostics;
+        const pct = (value) => `${((Number(value) || 0) * 100).toFixed(1)}%`;
+        const lines = [
+          `GEOMETRY ${d.pass ? "PASS" : "HOLD"}`,
+          `Reason: ${d.reason}`,
+          "",
+          "MEASURED EDGES",
+          `Left:  ${d.measured ? d.measured.left : "—"} px`,
+          `Right: ${d.measured ? d.measured.right : "—"} px`,
+          `Top:   ${d.measured ? d.measured.top : "—"} px`,
+          `Width: ${d.measured ? d.measured.width : "—"} px`,
+          `Stable scanlines: ${d.measured ? `${d.measured.acceptedScanlines}/${d.measured.candidateScanlines}` : "—"}`,
+          "",
+          "ANCHORED TEMPLATE",
+          `Left:  ${d.template ? d.template.left : "—"} px`,
+          `Right: ${d.template ? d.template.right : "—"} px`,
+          `Column width: ${d.template ? d.template.columnWidth.toFixed(2) : "—"} px`,
+          `X error: ${d.template ? d.template.xErrorPx : "—"} px`,
+          `Y error: ${d.template ? d.template.yErrorPx : "—"} px`,
+          "",
+          "CONFIDENCE GATE",
+          `Edge confidence: ${d.measured ? pct(d.measured.confidence) : "0.0%"}`,
+          `Mask quality: ${pct(d.mask.quality)}`,
+          `Handoff allowed: ${d.handoff.allowed ? "YES" : "NO"}`,
+          "",
+          "FULL DIAGNOSTICS",
+          JSON.stringify(d, null, 2)
+        ];
+        guidedMaskDebug.textContent = lines.join("\n");
+        guidedMaskDebug.dataset.state = d.pass ? "pass" : "hold";
+      }
+      if (guidedUseCandidateButton) guidedUseCandidateButton.disabled = !guidedMaskAnalysis.candidateCanvas;
+      if (guidedMaskAnalysis.candidateCanvas) {
+        setGuidedMaskStatus(`Geometry locked at ${(guidedMaskAnalysis.confidence * 100).toFixed(0)}% confidence. The candidate may now be handed to the unchanged screenshot scanner.`, "ready");
       } else {
-        setGuidedMaskStatus("No stable left/right tableau edges were found. Adjust the thresholds or use the full bracket crop.", "warning");
+        setGuidedMaskStatus(`Geometry held: ${guidedMaskAnalysis.diagnostics.reason}. Adjust the mask controls or use the full bracket crop.`, "warning");
       }
     } catch (error) {
       console.error(error);
@@ -841,8 +865,8 @@
   }
 
   function useGuidedMaskCandidate() {
-    if (!guidedMaskAnalysis || !guidedMaskAnalysis.candidateCanvas || !guidedMaskAnalysis.confidence || !guidedMaskAnalysis.confidence.pass) {
-      setGuidedMaskStatus("The geometry confidence gate has not passed. Rebuild the mask, retake the photo, or use the full bracket crop.", "warning");
+    if (!guidedMaskAnalysis || !guidedMaskAnalysis.candidateCanvas) {
+      setGuidedMaskStatus("No candidate is available. Rebuild the mask or use the full bracket crop.", "warning");
       return;
     }
     handGuidedCanvasToScreenshotScanner(guidedMaskAnalysis.candidateCanvas, "Mask candidate selected.");
