@@ -1101,3 +1101,78 @@ button, textarea, select, a { font: inherit; }
 #scan-guided-use-original-bracket {
   border-color: #73a7e8;
 }
+
+
+/* v43: card-aware spoken solution controls */
+.solution-page .move-description {
+  font-size: clamp(1.05rem, 3.8vw, 1.45rem);
+  line-height: 1.35;
+  min-height: 2.8em;
+  padding: 8px 10px;
+}
+.solution-page .speech-controls {
+  margin: 14px auto 16px;
+  padding: 12px;
+  max-width: 680px;
+  border: 1px solid rgba(255,255,255,.22);
+  border-radius: 14px;
+  background: rgba(0,0,0,.18);
+}
+.solution-page .speech-toggle,
+.solution-page .speech-rate-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 5px 10px;
+  color: #f1f7ff;
+  font-weight: 800;
+}
+.solution-page .speech-toggle input {
+  width: 21px;
+  height: 21px;
+}
+.solution-page .speech-buttons {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin: 9px 0;
+}
+.solution-page .speech-status {
+  min-height: 1.3em;
+  margin: 5px 0 0;
+  color: #ffe17a;
+  font-weight: 800;
+}
+@media (max-width: 560px) {
+  .solution-page .speech-buttons button { flex: 1 1 145px; }
+  .solution-page .speech-toggle,
+  .solution-page .speech-rate-label { display: flex; justify-content: center; }
+}
+
+/* v44: iPhone speech unlock, voice choice, and visible status */
+.solution-page .speech-voice-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 8px auto;
+  color: #f1f7ff;
+  font-weight: 800;
+}
+.solution-page .speech-voice-label select {
+  width: min(100%, 360px);
+}
+.solution-page .speech-buttons .enable-voice {
+  background: linear-gradient(#39bd64, #20833f);
+  box-shadow: 0 3px 0 #135725;
+}
+.solution-page .speech-status[data-kind="ready"] { color: #8ff2ae; }
+.solution-page .speech-status[data-kind="speaking"] { color: #ffe17a; }
+.solution-page .speech-status[data-kind="warning"] { color: #ffd782; }
+.solution-page .speech-status[data-kind="error"] { color: #ffabab; }
+@media (max-width: 560px) {
+  .solution-page .speech-buttons .enable-voice { flex-basis: 100%; }
+  .solution-page .speech-voice-label { align-items: stretch; flex-direction: column; }
+  .solution-page .speech-voice-label select { width: 100%; }
+}
