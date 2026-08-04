@@ -120,8 +120,8 @@
       <div id="scan-preview-panel" class="scan-preview-panel" hidden>
 
         <section id="scan-guided-mask-panel" class="scan-guided-mask-panel" hidden aria-label="Guided photo mask review">
-          <h3>Guided-photo tableau mask</h3>
-          <p>This diagnostic runs only for Take Guided Photo. White should represent the pale card surfaces. Review the mask and candidate before handing the image to the unchanged screenshot scanner.</p>
+          <h3>Guided-photo geometry lock</h3>
+          <p>This photo-only diagnostic measures the tableau directly from the cleaned mask. Green lines are measured edges, blue lines are template edges, and yellow lines show the anchored eight-column geometry. The unchanged screenshot scanner is used only after the confidence gate passes.</p>
 
           <div class="scan-guided-mask-controls">
             <label>Brightness threshold <output id="scan-guided-brightness-value">116</output><input id="scan-guided-brightness" type="range" min="80" max="190" step="1" value="116"></label>
@@ -134,7 +134,7 @@
             <figure><canvas id="scan-guided-strict-mask"></canvas><figcaption>Strict black-and-white card mask</figcaption></figure>
             <figure><canvas id="scan-guided-clean-mask"></canvas><figcaption>Cleaned card mask</figcaption></figure>
             <figure><canvas id="scan-guided-connected-mask"></canvas><figcaption>Connected tableau evidence</figcaption></figure>
-            <figure class="scan-guided-wide"><canvas id="scan-guided-candidate-overlay"></canvas><figcaption>Measured edges and edge-anchored template</figcaption></figure>
+            <figure class="scan-guided-wide"><canvas id="scan-guided-candidate-overlay"></canvas><figcaption>Measured edges and anchored canonical geometry</figcaption></figure>
           </div>
 
           <pre id="scan-guided-mask-debug" class="scan-guided-mask-debug"></pre>
