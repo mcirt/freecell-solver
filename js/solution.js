@@ -46,44 +46,46 @@
       const cards = state.tableau[source].slice(-count);
       const firstCard = cards[0];
       const destinationCard = state.tableau[destination].at(-1);
-      const ending = destinationCard
-        ? " to " + cardWords(destinationCard) + " " + columnWords(destination)
-        : " to " + columnWords(destination);
-      if (count === 1) return "Move " + cardWords(firstCard) + " " + columnWords(source) + ending + ".";
-      return "Move " + count + " cards, starting with " + cardWords(firstCard) + " " + columnWords(source) + ending + ".";
+      const destinationWords = destinationCard
+        ? columnWords(destination) + " " + cardWords(destinationCard)
+        : columnWords(destination);
+      if (count === 1) {
+        return columnWords(source) + " " + cardWords(firstCard) + " to " + destinationWords + ".";
+      }
+      return columnWords(source) + " " + cardWords(firstCard) + ", " + count + " cards, to " + destinationWords + ".";
     }
     if ((m = text.match(/^Move a card from stack (\d+) to stack (\d+)$/i))) {
       const source = Number(m[1]);
       const destination = Number(m[2]);
       const card = state.tableau[source].at(-1);
       const destinationCard = state.tableau[destination].at(-1);
-      return "Move " + cardWords(card) + " " + columnWords(source) +
-        (destinationCard ? " to " + cardWords(destinationCard) + " " + columnWords(destination) : " to " + columnWords(destination)) + ".";
+      return columnWords(source) + " " + cardWords(card) + " to " + columnWords(destination) +
+        (destinationCard ? " " + cardWords(destinationCard) : "") + ".";
     }
     if ((m = text.match(/^Move a card from stack (\d+) to freecell (\d+)$/i))) {
       const source = Number(m[1]);
       const card = state.tableau[source].at(-1);
-      return "Move " + cardWords(card) + " " + columnWords(source) + " to " + freeCellWords(m[2]) + ".";
+      return columnWords(source) + " " + cardWords(card) + " to " + freeCellWords(m[2]) + ".";
     }
     if ((m = text.match(/^Move a card from freecell (\d+) to stack (\d+)$/i))) {
       const source = Number(m[1]);
       const destination = Number(m[2]);
       const card = state.freecells[source];
       const destinationCard = state.tableau[destination].at(-1);
-      return "Move " + cardWords(card) + " " + freeCellWords(source) +
-        (destinationCard ? " to " + cardWords(destinationCard) + " " + columnWords(destination) : " to " + columnWords(destination)) + ".";
+      return freeCellWords(source) + " " + cardWords(card) + " to " + columnWords(destination) +
+        (destinationCard ? " " + cardWords(destinationCard) : "") + ".";
     }
     if ((m = text.match(/^Move a card from stack (\d+) to the foundations$/i))) {
       const source = Number(m[1]);
       const card = state.tableau[source].at(-1);
-      return "Move " + cardWords(card) + " " + columnWords(source) + " to foundation.";
+      return columnWords(source) + " " + cardWords(card) + " to foundation.";
     }
     if ((m = text.match(/^Move a card from freecell (\d+) to the foundations$/i))) {
       const source = Number(m[1]);
       const card = state.freecells[source];
-      return "Move " + cardWords(card) + " " + freeCellWords(source) + " to foundation.";
+      return freeCellWords(source) + " " + cardWords(card) + " to foundation.";
     }
-    return text;
+    return text.replace(/^Move\s+/i, "");
   }
 
   function updateCaption(text) {
