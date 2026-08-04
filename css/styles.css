@@ -1197,3 +1197,36 @@ button, textarea, select, a { font: inherit; }
   text-align: center;
 }
 .spoken-caption[hidden] { display: none !important; }
+
+
+/* v48 solver investigation panel */
+.input-footer-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.solver-lab-action { background: linear-gradient(#7259d9, #5034aa); border-color: #5239aa; box-shadow: 0 5px 0 #30206e; }
+.solver-lab-panel { margin: 20px 0 28px; padding: 18px; border: 2px solid #8b78db; border-radius: 16px; background: #f8f6ff; box-shadow: 0 12px 28px rgba(55, 38, 120, .14); color: #1d2440; }
+.solver-lab-panel[hidden] { display: none; }
+.solver-lab-heading { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
+.solver-lab-heading h2 { margin: 2px 0 6px; }
+.solver-lab-heading p { margin: 0; line-height: 1.45; }
+.solver-lab-eyebrow { color: #604cb9; font-size: .76rem; font-weight: 800; letter-spacing: .08em; }
+.solver-lab-close { min-width: 42px; min-height: 42px; border: 0; border-radius: 50%; font-size: 1.6rem; background: #e8e3ff; color: #3c287f; }
+.solver-lab-progress { margin: 16px 0 12px; padding: 12px 14px; border-radius: 10px; background: #30266a; color: white; font-weight: 750; }
+.solver-lab-table-wrap { overflow-x: auto; border: 1px solid #d8d1f4; border-radius: 12px; background: white; }
+.solver-lab-table { width: 100%; border-collapse: collapse; min-width: 620px; }
+.solver-lab-table th, .solver-lab-table td { padding: 12px 10px; text-align: left; border-bottom: 1px solid #ece8f8; }
+.solver-lab-table thead th { background: #eeeafe; color: #392a7e; font-size: .86rem; }
+.solver-lab-table tbody tr:last-child th, .solver-lab-table tbody tr:last-child td { border-bottom: 0; }
+.solver-lab-running { background: #fff7d9; }
+.solver-lab-solved .lab-result { color: #137534; font-weight: 800; }
+.solver-lab-unsolved .lab-result, .solver-lab-error .lab-result { color: #ad2727; font-weight: 800; }
+.solver-lab-best { background: #e5f8ea; outline: 3px solid #32a852; outline-offset: -3px; }
+.solver-lab-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.solver-lab-actions button { border: 0; border-radius: 10px; padding: 11px 15px; background: #5840bd; color: white; font-weight: 800; }
+.solver-lab-actions button:disabled { opacity: .5; }
+.solver-lab-details { margin-top: 14px; }
+.solver-lab-details summary { cursor: pointer; font-weight: 800; color: #483496; }
+.solver-lab-details li { margin: 8px 0; line-height: 1.4; }
+@media (max-width: 720px) {
+  .input-footer-actions { grid-template-columns: 1fr; }
+  .solver-lab-panel { padding: 14px; }
+  .solver-lab-heading { align-items: flex-start; }
+}
