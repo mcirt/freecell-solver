@@ -21,10 +21,80 @@
   const speechRate = document.getElementById("speech-rate");
   const speechStatus = document.getElementById("speech-status");
   const canSpeak = "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+  const captionsToggle = document.getElementById("show-captions");
+  const captionBox = document.getElementById("spoken-caption");
+
+  const spokenRanks = { A: "ace", J: "jack", Q: "queen", K: "king", T: "10" };
+  const spokenSuits = { S: "spade", H: "heart", D: "diamond", C: "clover" };
+
+  function cardWords(card) {
+    if (!card) return "card";
+    const rank = card.slice(0, -1);
+    const suit = card.slice(-1);
+    return (spokenRanks[rank] || rank) + " " + (spokenSuits[suit] || suit);
+  }
+
+  function columnWords(index) { return "column " + (Number(index) + 1); }
+  function freeCellWords(index) { return "free cell " + (Number(index) + 1); }
+
+  function describeMove(state, text) {
+    let m;
+    if ((m = text.match(/^Move (\d+) cards? from stack (\d+) to stack (\d+)$/i))) {
+      const count = Number(m[1]);
+      const source = Number(m[2]);
+      const destination = Number(m[3]);
+      const cards = state.tableau[source].slice(-count);
+      const firstCard = cards[0];
+      const destinationCard = state.tableau[destination].at(-1);
+      const ending = destinationCard
+        ? " to " + cardWords(destinationCard) + " " + columnWords(destination)
+        : " to " + columnWords(destination);
+      if (count === 1) return "Move " + cardWords(firstCard) + " " + columnWords(source) + ending + ".";
+      return "Move " + count + " cards, starting with " + cardWords(firstCard) + " " + columnWords(source) + ending + ".";
+    }
+    if ((m = text.match(/^Move a card from stack (\d+) to stack (\d+)$/i))) {
+      const source = Number(m[1]);
+      const destination = Number(m[2]);
+      const card = state.tableau[source].at(-1);
+      const destinationCard = state.tableau[destination].at(-1);
+      return "Move " + cardWords(card) + " " + columnWords(source) +
+        (destinationCard ? " to " + cardWords(destinationCard) + " " + columnWords(destination) : " to " + columnWords(destination)) + ".";
+    }
+    if ((m = text.match(/^Move a card from stack (\d+) to freecell (\d+)$/i))) {
+      const source = Number(m[1]);
+      const card = state.tableau[source].at(-1);
+      return "Move " + cardWords(card) + " " + columnWords(source) + " to " + freeCellWords(m[2]) + ".";
+    }
+    if ((m = text.match(/^Move a card from freecell (\d+) to stack (\d+)$/i))) {
+      const source = Number(m[1]);
+      const destination = Number(m[2]);
+      const card = state.freecells[source];
+      const destinationCard = state.tableau[destination].at(-1);
+      return "Move " + cardWords(card) + " " + freeCellWords(source) +
+        (destinationCard ? " to " + cardWords(destinationCard) + " " + columnWords(destination) : " to " + columnWords(destination)) + ".";
+    }
+    if ((m = text.match(/^Move a card from stack (\d+) to the foundations$/i))) {
+      const source = Number(m[1]);
+      const card = state.tableau[source].at(-1);
+      return "Move " + cardWords(card) + " " + columnWords(source) + " to foundation.";
+    }
+    if ((m = text.match(/^Move a card from freecell (\d+) to the foundations$/i))) {
+      const source = Number(m[1]);
+      const card = state.freecells[source];
+      return "Move " + cardWords(card) + " " + freeCellWords(source) + " to foundation.";
+    }
+    return text;
+  }
+
+  function updateCaption(text) {
+    const show = Boolean(captionsToggle && captionsToggle.checked);
+    captionBox.hidden = !show;
+    captionBox.textContent = show ? (text || "") : "";
+  }
 
   function currentInstruction() {
     if (current >= moves.length) return "Solution complete.";
-    return ns.describeMove(states[current], moves[current]);
+    return describeMove(states[current], moves[current]);
   }
 
   function setSpeechStatus(message, kind) {
@@ -260,9 +330,12 @@
     if (current >= moves.length) {
       counter.textContent = "Move " + moves.length + " of " + moves.length;
       description.textContent = "Solution complete.";
+      updateCaption("Solution complete.");
     } else {
       counter.textContent = "Next move " + (current + 1) + " of " + moves.length;
-      description.textContent = currentInstruction();
+      const instruction = currentInstruction();
+      description.textContent = instruction;
+      updateCaption(instruction);
     }
     setControls();
   }
@@ -283,7 +356,7 @@
     setControls();
 
     const moveText = moves[current];
-    const spokenText = ns.describeMove(states[current], moveText);
+    const spokenText = describeMove(states[current], moveText);
     description.textContent = spokenText;
     if (autoSpeak.checked && voiceEnabled) await speak(spokenText);
 
@@ -356,6 +429,10 @@
       });
       speechRate.addEventListener("change", () => safeStorageSet("freecellSpeechRate", speechRate.value));
       autoSpeak.addEventListener("change", () => safeStorageSet("freecellAutoSpeak", autoSpeak.checked ? "true" : "false"));
+      captionsToggle.addEventListener("change", () => {
+        safeStorageSet("freecellShowCaptions", captionsToggle.checked ? "true" : "false");
+        updateCaption(currentInstruction());
+      });
       window.addEventListener("beforeunload", () => stopSpeaking({ clearStatus: false }));
       document.addEventListener("visibilitychange", () => {
         if (!document.hidden && canSpeak) window.speechSynthesis.resume();
@@ -371,6 +448,7 @@
         const savedRate = safeStorageGet("freecellSpeechRate");
         if (savedRate && Array.from(speechRate.options).some(option => option.value === savedRate)) speechRate.value = savedRate;
         autoSpeak.checked = safeStorageGet("freecellAutoSpeak") !== "false";
+        captionsToggle.checked = safeStorageGet("freecellShowCaptions") !== "false";
         autoSpeak.disabled = true;
         loadVoices();
         window.speechSynthesis.onvoiceschanged = loadVoices;

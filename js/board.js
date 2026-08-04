@@ -23,6 +23,66 @@
     freecells.replaceChildren(); state.freecells.forEach((card,i)=>{ const slot=document.createElement("div"); slot.className="slot freecell-slot"+(card?"":" empty"); slot.dataset.symbol="⚜"; slot.dataset.location="freecell-"+i; if(card) slot.appendChild(ns.cardElement(card)); freecells.appendChild(slot); });
     tableau.replaceChildren(); state.tableau.forEach((column,i)=>{ const col=document.createElement("div"); col.className="column"; col.dataset.location="stack-"+i; const number=document.createElement("div"); number.className="column-number"; number.textContent=i+1; const cards=document.createElement("div"); cards.className="cards"; column.forEach((card,j)=>{ const el=ns.cardElement(card); el.style.top="calc("+j+" * var(--overlap))"; el.style.zIndex=String(j+1); cards.appendChild(el); }); col.append(number,cards); tableau.appendChild(col); });
   };
+  const spokenRanks = { A:"ace", J:"jack", Q:"queen", K:"king", T:"10" };
+  const spokenSuits = { S:"spade", H:"heart", D:"diamond", C:"clover" };
+  function cardWords(card) {
+    if (!card) return "card";
+    const rawRank = card.slice(0, -1);
+    const suit = card.slice(-1);
+    return (spokenRanks[rawRank] || rawRank) + " " + (spokenSuits[suit] || suit);
+  }
+  function columnWords(index) { return "column " + (Number(index) + 1); }
+  function freeCellWords(index) { return "free cell " + (Number(index) + 1); }
+
+  ns.describeMove = function (state, text) {
+    let m;
+    if ((m = text.match(/^Move (\d+) cards? from stack (\d+) to stack (\d+)$/i))) {
+      const count = Number(m[1]);
+      const source = Number(m[2]);
+      const destination = Number(m[3]);
+      const cards = state.tableau[source].slice(-count);
+      const firstCard = cards[0];
+      const destinationCard = state.tableau[destination].at(-1);
+      const ending = destinationCard
+        ? " to " + cardWords(destinationCard) + " " + columnWords(destination)
+        : " to " + columnWords(destination);
+      if (count === 1) return "Move " + cardWords(firstCard) + " " + columnWords(source) + ending + ".";
+      return "Move " + count + " cards, starting with " + cardWords(firstCard) + " " + columnWords(source) + ending + ".";
+    }
+    if ((m = text.match(/^Move a card from stack (\d+) to stack (\d+)$/i))) {
+      const source = Number(m[1]);
+      const destination = Number(m[2]);
+      const card = state.tableau[source].at(-1);
+      const destinationCard = state.tableau[destination].at(-1);
+      return "Move " + cardWords(card) + " " + columnWords(source) +
+        (destinationCard ? " to " + cardWords(destinationCard) + " " + columnWords(destination) : " to " + columnWords(destination)) + ".";
+    }
+    if ((m = text.match(/^Move a card from stack (\d+) to freecell (\d+)$/i))) {
+      const source = Number(m[1]);
+      const card = state.tableau[source].at(-1);
+      return "Move " + cardWords(card) + " to " + freeCellWords(m[2]) + ".";
+    }
+    if ((m = text.match(/^Move a card from freecell (\d+) to stack (\d+)$/i))) {
+      const source = Number(m[1]);
+      const destination = Number(m[2]);
+      const card = state.freecells[source];
+      const destinationCard = state.tableau[destination].at(-1);
+      return "Move " + cardWords(card) + " " + freeCellWords(source) +
+        (destinationCard ? " to " + cardWords(destinationCard) + " " + columnWords(destination) : " to " + columnWords(destination)) + ".";
+    }
+    if ((m = text.match(/^Move a card from stack (\d+) to the foundations$/i))) {
+      const source = Number(m[1]);
+      const card = state.tableau[source].at(-1);
+      return "Move " + cardWords(card) + " " + columnWords(source) + " to foundation.";
+    }
+    if ((m = text.match(/^Move a card from freecell (\d+) to the foundations$/i))) {
+      const source = Number(m[1]);
+      const card = state.freecells[source];
+      return "Move " + cardWords(card) + " " + freeCellWords(source) + " to foundation.";
+    }
+    return text;
+  };
+
   ns.moveDetails = function (state,text) { let m;
     if((m=text.match(/^Move (\d+) cards? from stack (\d+) to stack (\d+)$/i))){ const n=+m[1],s=+m[2]; return {cards:state.tableau[s].slice(-n),source:"stack-"+s,destination:"stack-"+(+m[3])}; }
     if((m=text.match(/^Move a card from stack (\d+) to stack (\d+)$/i))){ const s=+m[1]; return {cards:state.tableau[s].slice(-1),source:"stack-"+s,destination:"stack-"+(+m[2])}; }
