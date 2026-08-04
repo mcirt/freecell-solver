@@ -12,7 +12,26 @@ define([
   const movesEl = document.getElementById("moves");
   const errorEl = document.getElementById("error");
   const viewerLink = document.getElementById("open-viewer");
+
+  const labButton = document.getElementById("solver-lab");
+  const labPanel = document.getElementById("solver-lab-panel");
+  const labClose = document.getElementById("solver-lab-close");
+  const labRun = document.getElementById("solver-lab-run");
+  const labOpenBest = document.getElementById("solver-lab-open-best");
+  const labProgress = document.getElementById("solver-lab-progress");
+  const labResults = document.getElementById("solver-lab-results");
+
+  const MAX_ITERS = 131072;
+  const SOLVER_TESTS = [
+    { id: "default", name: "Current default", params: "" },
+    { id: "optimize", name: "Optimize solution", params: "--optimize-solution" },
+    { id: "reparent", name: "Reparent states", params: "--reparent-states --calc-real-depth" },
+    { id: "combined", name: "Optimize + reparent", params: "--optimize-solution --reparent-states --calc-real-depth" }
+  ];
+
   let moduleWrapper = null;
+  let comparisonRunning = false;
+  let bestComparison = null;
 
   function setStatus(kind, label) {
     if (statusEl) {
@@ -36,48 +55,84 @@ define([
     return new Promise(resolve => setTimeout(resolve, 0));
   }
 
-  async function solveBoard() {
-    if (!moduleWrapper) return;
-    solveButton.disabled = true;
+  function createSolver(params, statusCallback) {
+    return new FCS.FC_Solve({
+      module_wrapper: moduleWrapper,
+      dir_base: "js/",
+      string_params: params,
+      cmd_line_preset: "default",
+      set_status_callback: statusCallback || function () {}
+    });
+  }
+
+  async function runSolver(board, params, statusCallback) {
+    const started = performance.now();
+    let solver;
     try {
-      const board = boardEl.value.trim();
-      if (!board) throw new Error("Enter all 52 cards before solving.");
-
-      const solver = new FCS.FC_Solve({
-        module_wrapper: moduleWrapper,
-        dir_base: "js/",
-        string_params: "",
-        cmd_line_preset: "default",
-        set_status_callback: setStatus
-      });
-
+      solver = createSolver(params, statusCallback);
       let result = solver.do_solve(board);
-      while (result === FCS.FCS_STATE_SUSPEND_PROCESS && solver.current_iters_limit < 131072) {
+      while (result === FCS.FCS_STATE_SUSPEND_PROCESS && solver.current_iters_limit < MAX_ITERS) {
         await allowBrowserToPaint();
         result = solver.resume_solution();
       }
-      if (result !== FCS.FCS_STATE_WAS_SOLVED) return;
+
+      const elapsedMs = performance.now() - started;
+      const iterations = typeof solver.get_num_times_long === "function" ? solver.get_num_times_long() : solver.current_iters_limit;
+      if (result !== FCS.FCS_STATE_WAS_SOLVED) {
+        return { solved: false, result, elapsedMs, iterations, moves: [], moveStrings: [] };
+      }
 
       solver.display_solution({
         displayer: new FCS.DisplayFilter({ is_unicode_cards: false, is_unicode_cards_chars: false })
       });
       const sequence = solver.get_pre_expand_states_and_moves_seq() || [];
       const moves = sequence.filter(item => item.type === "m");
+      return {
+        solved: true,
+        result,
+        elapsedMs,
+        iterations,
+        moves,
+        moveStrings: moves.map(move => move.str)
+      };
+    } catch (error) {
+      return {
+        solved: false,
+        error,
+        elapsedMs: performance.now() - started,
+        iterations: 0,
+        moves: [],
+        moveStrings: []
+      };
+    }
+  }
+
+  function saveSolution(board, moveStrings) {
+    sessionStorage.setItem("freecellSolution", JSON.stringify({ board, moves: moveStrings }));
+  }
+
+  async function solveBoard() {
+    if (!moduleWrapper) return;
+    solveButton.disabled = true;
+    try {
+      const board = boardEl.value.trim();
+      if (!board) throw new Error("Enter all 52 cards before solving.");
+      const outcome = await runSolver(board, "", setStatus);
+      if (!outcome.solved) {
+        solveButton.disabled = false;
+        return;
+      }
 
       if (movesEl) {
         movesEl.replaceChildren();
-        moves.forEach(move => {
+        outcome.moves.forEach(move => {
           const li = document.createElement("li");
           li.textContent = move.str;
           movesEl.appendChild(li);
         });
       }
-      if (statsEl) statsEl.textContent = moves.length + " moves";
-
-      sessionStorage.setItem("freecellSolution", JSON.stringify({
-        board,
-        moves: moves.map(move => move.str)
-      }));
+      if (statsEl) statsEl.textContent = outcome.moves.length + " moves";
+      saveSolution(board, outcome.moveStrings);
       if (viewerLink) viewerLink.hidden = false;
       setStatus("solved", "Solution found. Opening viewer…");
       window.location.href = "solution.html";
@@ -87,7 +142,112 @@ define([
     }
   }
 
+  function formatTime(ms) {
+    return ms < 1000 ? Math.round(ms) + " ms" : (ms / 1000).toFixed(2) + " s";
+  }
+
+  function addPendingRow(test) {
+    const row = document.createElement("tr");
+    row.dataset.testId = test.id;
+    row.innerHTML = "<th scope=\"row\"></th><td class=\"lab-result\">Waiting</td><td>—</td><td>—</td><td>—</td>";
+    row.querySelector("th").textContent = test.name;
+    labResults.appendChild(row);
+    return row;
+  }
+
+  function updateResultRow(row, outcome) {
+    const cells = row.querySelectorAll("td");
+    if (outcome.error) {
+      row.classList.add("solver-lab-error");
+      cells[0].textContent = "Error";
+      cells[0].title = outcome.error.message || String(outcome.error);
+      cells[1].textContent = "—";
+      cells[2].textContent = "—";
+      cells[3].textContent = formatTime(outcome.elapsedMs);
+      return;
+    }
+    cells[0].textContent = outcome.solved ? "Solved" : "Not solved";
+    cells[1].textContent = outcome.solved ? String(outcome.moveStrings.length) : "—";
+    cells[2].textContent = Number(outcome.iterations || 0).toLocaleString();
+    cells[3].textContent = formatTime(outcome.elapsedMs);
+    row.classList.add(outcome.solved ? "solver-lab-solved" : "solver-lab-unsolved");
+  }
+
+  function syncLabButton() {
+    if (!labButton || comparisonRunning) return;
+    labButton.disabled = !moduleWrapper || solveButton.disabled;
+  }
+
+  async function runComparison() {
+    if (!moduleWrapper || comparisonRunning) return;
+    const board = boardEl.value.trim();
+    if (!board) {
+      showError(new Error("Enter all 52 cards before comparing solver modes."));
+      return;
+    }
+
+    comparisonRunning = true;
+    bestComparison = null;
+    labOpenBest.disabled = true;
+    labButton.disabled = true;
+    labRun.disabled = true;
+    labResults.replaceChildren();
+    const rows = new Map();
+    SOLVER_TESTS.forEach(test => rows.set(test.id, addPendingRow(test)));
+
+    try {
+      for (let index = 0; index < SOLVER_TESTS.length; index += 1) {
+        const test = SOLVER_TESTS[index];
+        const row = rows.get(test.id);
+        row.classList.add("solver-lab-running");
+        labProgress.textContent = `Testing ${index + 1} of ${SOLVER_TESTS.length}: ${test.name}…`;
+        const outcome = await runSolver(board, test.params, function (_kind, label) {
+          labProgress.textContent = `${test.name}: ${label}`;
+        });
+        row.classList.remove("solver-lab-running");
+        updateResultRow(row, outcome);
+        outcome.test = test;
+        if (outcome.solved && (!bestComparison || outcome.moveStrings.length < bestComparison.moveStrings.length)) {
+          bestComparison = outcome;
+        }
+        await allowBrowserToPaint();
+      }
+
+      if (bestComparison) {
+        const bestRow = rows.get(bestComparison.test.id);
+        bestRow.classList.add("solver-lab-best");
+        bestRow.querySelector(".lab-result").textContent = "Best found";
+        labProgress.textContent = `Comparison complete. Shortest result: ${bestComparison.moveStrings.length} moves using ${bestComparison.test.name}.`;
+        labOpenBest.disabled = false;
+      } else {
+        labProgress.textContent = "Comparison complete, but none of the tested methods solved within the iteration ceiling.";
+      }
+    } finally {
+      comparisonRunning = false;
+      labRun.disabled = false;
+      syncLabButton();
+    }
+  }
+
+  function openLab() {
+    labPanel.hidden = false;
+    labPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+    runComparison();
+  }
+
   solveButton.addEventListener("click", solveBoard);
+  if (labButton) labButton.addEventListener("click", openLab);
+  if (labRun) labRun.addEventListener("click", runComparison);
+  if (labClose) labClose.addEventListener("click", function () { labPanel.hidden = true; });
+  if (labOpenBest) labOpenBest.addEventListener("click", function () {
+    if (!bestComparison) return;
+    saveSolution(boardEl.value.trim(), bestComparison.moveStrings);
+    window.location.href = "solution.html";
+  });
+
+  if (solveButton && labButton) {
+    new MutationObserver(syncLabButton).observe(solveButton, { attributes: true, attributeFilter: ["disabled"] });
+  }
 
   (async function initialize() {
     try {
@@ -99,6 +259,7 @@ define([
       moduleWrapper = FCS.FC_Solve_init_wrappers_with_module(Module);
       window.dispatchEvent(new Event("freecell-solver-ready"));
       setStatus("ready", "Solver loaded");
+      syncLabButton();
     } catch (error) {
       showError(error);
     }
