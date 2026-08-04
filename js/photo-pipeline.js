@@ -331,9 +331,10 @@
       cv.morphologyEx(clean, connected, cv.MORPH_CLOSE, kernelConnect);
       cv.dilate(connected, connected, kernelConnect, new cv.Point(-1, -1), 1);
 
-      // Geometry lock: measure the cleaned mask directly. There is no contour-first
-      // horizontal search and no second contour lookup after padding.
-      const edges = robustTableauEdges(clean);
+      // v41 geometry lock: preserve the proven v39 strict card-surface mask and
+      // measure directly from it. The cleaned and connected masks are debug-only;
+      // they can never enlarge, recenter, or otherwise alter the fitted geometry.
+      const edges = robustTableauEdges(strict);
       const geometry = edges.pass || edges.width ? templateGeometry(edges) : null;
 
       let originalCandidate = null;
@@ -372,17 +373,19 @@
 
       const strictCoverage = cv.countNonZero(strict) / (strict.rows * strict.cols);
       const cleanCoverage = cv.countNonZero(clean) / (clean.rows * clean.cols);
+      const strictQuality = Math.max(0, 1 - Math.abs(strictCoverage - 0.34) / 0.34);
       const maskQuality = clamp(
-        (1 - Math.abs(cleanCoverage - 0.42) / 0.42) * 0.45 +
-        (edges.stableFraction || 0) * 0.35 +
-        (edges.verticalEvidence || 0) * 0.20,
+        strictQuality * 0.40 +
+        (edges.stableFraction || 0) * 0.38 +
+        (edges.verticalEvidence || 0) * 0.22,
         0,
         1
       );
 
       const diagnostics = {
-        version: "v40-geometry-lock",
+        version: "v41-v39-mask-geometry-lock",
         coordinateSpace: "single work-crop space",
+        geometryMask: "v39 strict card-surface mask",
         pass: Boolean(edges.pass),
         reason: edges.reason,
         source: { width: sourceCanvas.width, height: sourceCanvas.height },
@@ -393,9 +396,11 @@
           cleanup: settings.cleanup
         },
         mask: {
+          geometrySource: "strict",
           strictCoverage,
           cleanCoverage,
-          quality: maskQuality
+          quality: maskQuality,
+          note: "clean and connected masks are diagnostic only"
         },
         measured: geometry ? {
           left: edges.measuredLeft,
@@ -422,7 +427,7 @@
         handoff: {
           allowed: Boolean(candidateCanvas),
           candidate: originalCandidate,
-          gate: "confidence >= 56%, plausible width, and at least 14 stable scanlines"
+          gate: "v39 strict-mask confidence >= 56%, plausible width, and at least 14 stable scanlines"
         }
       };
 
