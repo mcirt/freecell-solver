@@ -120,8 +120,8 @@
       <div id="scan-preview-panel" class="scan-preview-panel" hidden>
 
         <section id="scan-guided-mask-panel" class="scan-guided-mask-panel" hidden aria-label="Guided photo mask review">
-          <h3>Guided-photo v39 mask geometry lock</h3>
-          <p>This photo-only diagnostic preserves the proven v39 strict card-surface mask and measures tableau geometry directly from that mask. Green lines are measured edges, blue lines are template edges, and yellow lines show the anchored eight-column geometry. Cleaned and connected masks are diagnostic only. The unchanged screenshot scanner is used only after the confidence gate passes.</p>
+          <h3>Guided-photo bracket refinement</h3>
+          <p>The proven bracket crop is now the primary photo path. The mask remains available for diagnosis and safe horizontal trimming, but a failed geometry gate no longer blocks scanning. The refined color crop is handed to the unchanged screenshot scanner.</p>
 
           <div class="scan-guided-mask-controls">
             <label>Brightness threshold <output id="scan-guided-brightness-value">116</output><input id="scan-guided-brightness" type="range" min="80" max="190" step="1" value="116"></label>
@@ -141,8 +141,8 @@
           <div id="scan-guided-mask-status" class="scan-guided-mask-status"></div>
           <div class="scan-guided-mask-actions">
             <button id="scan-guided-rerun" class="scan-secondary" type="button">Rebuild Mask</button>
-            <button id="scan-guided-use-candidate" class="scan-primary" type="button">Use Candidate in Screenshot Scanner</button>
-            <button id="scan-guided-use-bracket" class="scan-secondary" type="button">Use Full Bracket Crop</button>
+            <button id="scan-guided-use-bracket" class="scan-primary" type="button">Scan Refined Bracket Crop</button>
+            <button id="scan-guided-use-original-bracket" class="scan-secondary" type="button">Scan Original Full Crop</button>
             <button id="scan-guided-retake" class="scan-secondary" type="button">Retake Photo</button>
           </div>
         </section>
