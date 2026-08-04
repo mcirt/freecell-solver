@@ -35,6 +35,24 @@
     <section class="player-panel">
       <div class="move-description" id="move-description">Starting position</div>
       <strong id="move-counter" class="panel-counter">Move 0 of 0</strong>
+      <div class="speech-controls" aria-label="Spoken move controls">
+        <label class="speech-toggle">
+          <input id="auto-speak" type="checkbox" checked>
+          <span>Speak each move</span>
+        </label>
+        <div class="speech-buttons">
+          <button id="speak-move" type="button">🔊 Speak Move</button>
+          <button id="stop-speaking" type="button">■ Stop Voice</button>
+        </div>
+        <label class="speech-rate-label" for="speech-rate">Voice speed
+          <select id="speech-rate">
+            <option value="0.75">Slower</option>
+            <option value="0.9" selected>Normal</option>
+            <option value="1.05">Faster</option>
+          </select>
+        </label>
+        <p id="speech-status" class="speech-status" aria-live="polite"></p>
+      </div>
       <div class="controls primary-controls">
         <button id="first" type="button">|◀ First</button>
         <button id="previous" type="button">◀ Previous</button>
