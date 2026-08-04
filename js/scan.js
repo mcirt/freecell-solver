@@ -35,8 +35,8 @@
   const guidedCleanup = byId("scan-guided-cleanup");
   const guidedCleanupValue = byId("scan-guided-cleanup-value");
   const guidedRerunButton = byId("scan-guided-rerun");
-  const guidedUseCandidateButton = byId("scan-guided-use-candidate");
   const guidedUseBracketButton = byId("scan-guided-use-bracket");
+  const guidedUseOriginalBracketButton = byId("scan-guided-use-original-bracket");
   const guidedRetakeButton = byId("scan-guided-retake");
   const photoPanel = byId("scan-photo-panel");
   const photoCanvas = byId("scan-photo-canvas");
@@ -843,11 +843,10 @@
         guidedMaskDebug.textContent = lines.join("\n");
         guidedMaskDebug.dataset.state = d.pass ? "pass" : "hold";
       }
-      if (guidedUseCandidateButton) guidedUseCandidateButton.disabled = !guidedMaskAnalysis.candidateCanvas;
       if (guidedMaskAnalysis.candidateCanvas) {
-        setGuidedMaskStatus(`Geometry locked at ${(guidedMaskAnalysis.confidence * 100).toFixed(0)}% confidence. The candidate may now be handed to the unchanged screenshot scanner.`, "ready");
+        setGuidedMaskStatus(`Geometry evidence is available, but the refined bracket crop remains the primary scanner handoff.`, "ready");
       } else {
-        setGuidedMaskStatus(`Geometry held: ${guidedMaskAnalysis.diagnostics.reason}. Adjust the mask controls or use the full bracket crop.`, "warning");
+        setGuidedMaskStatus(`Geometry evidence held: ${guidedMaskAnalysis.diagnostics.reason}. This no longer blocks the refined bracket-crop scanner path.`, "warning");
       }
     } catch (error) {
       console.error(error);
@@ -868,16 +867,111 @@
     image.src = canvas.toDataURL("image/jpeg", 0.96);
   }
 
-  function useGuidedMaskCandidate() {
-    if (!guidedMaskAnalysis || !guidedMaskAnalysis.candidateCanvas) {
-      setGuidedMaskStatus("No candidate is available. Rebuild the mask or use the full bracket crop.", "warning");
-      return;
+  function canvasClone(source) {
+    const canvas = document.createElement("canvas");
+    canvas.width = source.width;
+    canvas.height = source.height;
+    canvas.getContext("2d", { alpha: false }).drawImage(source, 0, 0);
+    return canvas;
+  }
+
+  function strictMaskHorizontalBounds(maskCanvas) {
+    if (!maskCanvas || !maskCanvas.width || !maskCanvas.height) return null;
+    const ctx = maskCanvas.getContext("2d", { willReadFrequently: true });
+    const data = ctx.getImageData(0, 0, maskCanvas.width, maskCanvas.height).data;
+    const rows = [];
+    const yStart = Math.floor(maskCanvas.height * 0.22);
+    const yEnd = Math.floor(maskCanvas.height * 0.92);
+    for (let y = yStart; y < yEnd; y += 3) {
+      let left = -1;
+      let right = -1;
+      let white = 0;
+      for (let x = 0; x < maskCanvas.width; x += 1) {
+        const i = (y * maskCanvas.width + x) * 4;
+        if (data[i] > 180) {
+          if (left < 0) left = x;
+          right = x;
+          white += 1;
+        }
+      }
+      if (left >= 0 && right - left > maskCanvas.width * 0.56 && white > maskCanvas.width * 0.16) {
+        rows.push({ left, right });
+      }
     }
-    handGuidedCanvasToScreenshotScanner(guidedMaskAnalysis.candidateCanvas, "Mask candidate selected.");
+    if (rows.length < 8) return null;
+    const med = (values) => {
+      const sorted = values.slice().sort((a, b) => a - b);
+      const m = Math.floor(sorted.length / 2);
+      return sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2;
+    };
+    return { left: med(rows.map((r) => r.left)), right: med(rows.map((r) => r.right)), rows: rows.length };
+  }
+
+  function refinedBracketCanvas() {
+    if (!guidedBracketCanvas) return null;
+    const source = guidedBracketCanvas;
+    const bounds = strictMaskHorizontalBounds(guidedStrictCanvas);
+    let left = 0;
+    let right = source.width;
+    if (bounds) {
+      const padding = Math.max(18, Math.round(source.width * 0.035));
+      left = Math.max(0, Math.floor(bounds.left - padding));
+      right = Math.min(source.width, Math.ceil(bounds.right + padding));
+      if (right - left < source.width * 0.68) { left = 0; right = source.width; }
+    }
+    const crop = document.createElement("canvas");
+    crop.width = Math.max(1, right - left);
+    crop.height = source.height;
+    crop.getContext("2d", { alpha: false }).drawImage(source, left, 0, crop.width, crop.height, 0, 0, crop.width, crop.height);
+
+    const targetWidth = Math.min(1600, Math.max(960, crop.width));
+    const targetHeight = Math.round(crop.height * targetWidth / crop.width);
+    const refined = document.createElement("canvas");
+    refined.width = targetWidth;
+    refined.height = targetHeight;
+    const ctx = refined.getContext("2d", { alpha: false, willReadFrequently: true });
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(crop, 0, 0, targetWidth, targetHeight);
+    const imageData = ctx.getImageData(0, 0, targetWidth, targetHeight);
+    const d = imageData.data;
+    for (let i = 0; i < d.length; i += 4) {
+      d[i] = Math.max(0, Math.min(255, (d[i] - 128) * 1.08 + 130));
+      d[i + 1] = Math.max(0, Math.min(255, (d[i + 1] - 128) * 1.08 + 130));
+      d[i + 2] = Math.max(0, Math.min(255, (d[i + 2] - 128) * 1.08 + 130));
+    }
+    ctx.putImageData(imageData, 0, 0);
+
+    if (guidedMaskDebug) {
+      const previous = guidedMaskDebug.textContent || "";
+      guidedMaskDebug.textContent = [
+        "BRACKET HANDOFF",
+        `Original crop: ${source.width} × ${source.height}`,
+        `Refined crop: ${refined.width} × ${refined.height}`,
+        `Horizontal trim: ${left}px left / ${source.width - right}px right`,
+        `Mask scanlines used: ${bounds ? bounds.rows : 0}`,
+        "Vertical trim: none",
+        "Color image preserved: yes",
+        "Normalization: resize + mild contrast",
+        "Geometry gate required: no",
+        "",
+        previous
+      ].join("\n");
+    }
+    return refined;
   }
 
   function useGuidedBracketCrop() {
-    handGuidedCanvasToScreenshotScanner(guidedBracketCanvas, "Full bracket crop selected.");
+    const refined = refinedBracketCanvas();
+    if (!refined) {
+      setGuidedMaskStatus("No bracket crop is available. Retake the photo.", "warning");
+      return;
+    }
+    handGuidedCanvasToScreenshotScanner(refined, "Refined bracket crop selected.");
+  }
+
+  function useGuidedOriginalBracketCrop() {
+    handGuidedCanvasToScreenshotScanner(canvasClone(guidedBracketCanvas), "Original full bracket crop selected.");
   }
 
   function retakeGuidedPhoto() {
@@ -2623,8 +2717,8 @@
   dialog.querySelectorAll("[data-scan-cancel]")
     .forEach((node) => node.addEventListener("click", () => setDialogOpen(false)));
   if (guidedRerunButton) guidedRerunButton.addEventListener("click", runGuidedMaskAnalysis);
-  if (guidedUseCandidateButton) guidedUseCandidateButton.addEventListener("click", useGuidedMaskCandidate);
   if (guidedUseBracketButton) guidedUseBracketButton.addEventListener("click", useGuidedBracketCrop);
+  if (guidedUseOriginalBracketButton) guidedUseOriginalBracketButton.addEventListener("click", useGuidedOriginalBracketCrop);
   if (guidedRetakeButton) guidedRetakeButton.addEventListener("click", retakeGuidedPhoto);
   [guidedBrightness, guidedSaturation, guidedCleanup].forEach((input) => {
     if (!input) return;
