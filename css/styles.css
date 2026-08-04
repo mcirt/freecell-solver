@@ -1176,3 +1176,24 @@ button, textarea, select, a { font: inherit; }
   .solution-page .speech-voice-label { align-items: stretch; flex-direction: column; }
   .solution-page .speech-voice-label select { width: 100%; }
 }
+
+/* v46 spoken-move captions */
+.speech-toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.8rem 1.4rem;
+}
+.spoken-caption {
+  margin: 0.8rem 0 1rem;
+  padding: 0.9rem 1rem;
+  border: 2px solid rgba(112, 225, 255, 0.72);
+  border-radius: 0.8rem;
+  background: rgba(0, 12, 35, 0.88);
+  color: #ffffff;
+  font-size: clamp(1.05rem, 4vw, 1.45rem);
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+}
+.spoken-caption[hidden] { display: none !important; }
