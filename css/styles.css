@@ -1090,3 +1090,14 @@ button, textarea, select, a { font: inherit; }
   .scan-guided-mask-panel { padding: 12px; }
   .scan-guided-mask-grid canvas { max-height: 52vh; object-fit: contain; }
 }
+
+
+/* v42 bracket handoff refinement */
+#scan-guided-use-bracket {
+  background: linear-gradient(180deg, #63c989, #3a9e66);
+  border-color: #73e8a2;
+  font-weight: 800;
+}
+#scan-guided-use-original-bracket {
+  border-color: #73a7e8;
+}
