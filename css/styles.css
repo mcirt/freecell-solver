@@ -1060,3 +1060,33 @@ button, textarea, select, a { font: inherit; }
   .scan-camera-guide { top: 12%; height: 76%; }
 }
 \n\n/* v39 isolated guided-photo black-and-white mask review */\n.scan-guided-mask-panel {\n  margin-bottom: 16px;\n  padding: 14px;\n  border: 1px solid rgba(79, 231, 234, 0.75);\n  border-radius: 14px;\n  background: #061b3d;\n  color: #eefcff;\n}\n.scan-guided-mask-panel h3 { margin: 0 0 6px; }\n.scan-guided-mask-panel > p { color: #c3ddeb; line-height: 1.45; }\n.scan-guided-mask-controls { display: grid; gap: 10px; margin: 12px 0; }\n.scan-guided-mask-controls label { display: grid; gap: 5px; }\n.scan-guided-mask-controls output { color: #5bf2e7; font-weight: 800; }\n.scan-guided-mask-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }\n.scan-guided-mask-grid figure { margin: 0; overflow: hidden; border: 1px solid #58dce7; border-radius: 10px; background: #000; }\n.scan-guided-mask-grid canvas { display: block; width: 100%; height: auto; background: #000; }\n.scan-guided-mask-grid figcaption { padding: 7px; background: #103d73; text-align: center; font-weight: 700; }\n.scan-guided-wide { grid-column: 1 / -1; }\n.scan-guided-mask-debug { white-space: pre-wrap; overflow-wrap: anywhere; margin: 10px 0; padding: 9px; border-radius: 8px; background: #020f27; color: #c8edf0; }\n.scan-guided-mask-status { min-height: 44px; margin: 10px 0; padding: 9px; border-radius: 8px; border: 1px solid #64dce6; background: #03142d; }\n.scan-guided-mask-status.ready { border-color: #55e7a4; }\n.scan-guided-mask-status.warning { border-color: #ffbd64; color: #ffd799; }\n.scan-guided-mask-actions { display: grid; gap: 8px; }\n.scan-guided-mask-actions button { width: 100%; }\n@media (min-width: 720px) {\n  .scan-guided-mask-controls { grid-template-columns: repeat(3, minmax(0, 1fr)); }\n  .scan-guided-mask-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }\n}\n
+/* v40 guided-photo geometry lock: readable mobile diagnostics */
+.scan-guided-mask-debug {
+  max-height: 46vh;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: clamp(14px, 3.7vw, 17px);
+  line-height: 1.48;
+  tab-size: 2;
+  background: rgba(0, 7, 20, 0.96);
+  color: #f2fbff;
+  border: 2px solid #5edce8;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.05);
+  padding: 13px;
+}
+.scan-guided-mask-debug[data-state="pass"] { border-color: #55e7a4; }
+.scan-guided-mask-debug[data-state="hold"] { border-color: #ffbd64; }
+.scan-guided-mask-status {
+  font-size: clamp(15px, 3.9vw, 18px);
+  line-height: 1.45;
+  font-weight: 750;
+}
+.scan-guided-mask-grid figure { min-width: 0; }
+.scan-guided-mask-grid figcaption { font-size: clamp(13px, 3.3vw, 16px); line-height: 1.3; }
+@media (max-width: 719px) {
+  .scan-guided-mask-grid { grid-template-columns: 1fr; }
+  .scan-guided-wide { grid-column: auto; }
+  .scan-guided-mask-panel { padding: 12px; }
+  .scan-guided-mask-grid canvas { max-height: 52vh; object-fit: contain; }
+}
