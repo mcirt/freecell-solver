@@ -28,6 +28,28 @@
       </div>
     </section>
 
+    <section class="tableau-area">
+      <div id="tableau" class="tableau" aria-label="Eight tableau columns"></div>
+    </section>
+
+    <section class="player-panel playback-panel">
+      <div class="controls primary-controls">
+        <button id="first" type="button">|◀ First</button>
+        <button id="previous" type="button">◀ Previous</button>
+        <button id="play" class="play" type="button">▶ Play</button>
+        <button id="next" type="button">Next ▶</button>
+      </div>
+      <label class="speed-label" for="speed">Speed
+        <select id="speed">
+          <option value="1200">Slow</option>
+          <option value="700">Normal</option>
+          <option value="350" selected>Fast</option>
+          <option value="0">Instant</option>
+        </select>
+      </label>
+      <p id="viewer-error" class="viewer-error" hidden></p>
+    </section>
+
     <section class="viewer-toolbar" aria-label="Solution guidance">
       <div class="speech-controls compact-speech-controls" aria-label="Spoken move controls">
         <div class="speech-toggle-row">
@@ -68,34 +90,12 @@
         <div id="spoken-caption" class="spoken-caption" aria-live="polite"></div>
       </div>
     </section>
-
-    <section class="tableau-area">
-      <div id="tableau" class="tableau" aria-label="Eight tableau columns"></div>
-    </section>
-
-    <section class="player-panel playback-panel">
-      <div class="controls primary-controls">
-        <button id="first" type="button">|◀ First</button>
-        <button id="previous" type="button">◀ Previous</button>
-        <button id="play" class="play" type="button">▶ Play</button>
-        <button id="next" type="button">Next ▶</button>
-      </div>
-      <label class="speed-label" for="speed">Speed
-        <select id="speed">
-          <option value="1200">Slow</option>
-          <option value="700">Normal</option>
-          <option value="350" selected>Fast</option>
-          <option value="0">Instant</option>
-        </select>
-      </label>
-      <p id="viewer-error" class="viewer-error" hidden></p>
-    </section>
   </main>
 
   <script src="js/cards.js"></script>
   <script src="js/board.js"></script>
   <script src="js/animation.js"></script>
   <script src="js/controls.js"></script>
-  <script src="js/solution.js?v=49"></script>
+  <script src="js/solution.js?v=50"></script>
 </body>
 </html>

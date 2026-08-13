@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>FreeCell Solver — Board Input</title>
-  <link rel="stylesheet" href="css/styles.css?v=48">
+  <link rel="stylesheet" href="css/styles.css?v=50">
 </head>
 <body class="input-page">
   <main class="input-shell">
@@ -139,21 +139,24 @@
       </section>
 
       <div id="scan-picker-panel" class="scan-picker-panel">
-        <div class="scan-mode-picker">
-          <label for="board-picture-input" class="scan-native-picker-label">Choose Screenshot or Existing Image</label>
-          <input id="board-picture-input" class="scan-native-picker" type="file" accept="image/*,.heic,.heif" aria-label="Choose a screenshot or existing image">
+        <div class="scan-mode-picker streamlined-picker">
+          <label for="board-picture-input" class="scan-native-picker-label">Choose Screenshot or Photo</label>
+          <input id="board-picture-input" class="scan-native-picker" type="file" accept="image/*,.heic,.heif" aria-label="Choose a FreeCell screenshot or photo">
+          <p class="scan-picker-note">Choose one screenshot or photo of the complete 8-column FreeCell board. A valid 52-card recognition will be loaded directly into the board input area.</p>
 
-          <button id="scan-start-camera" class="scan-native-picker-label scan-photo-picker-label" type="button">Take Guided Photo</button>
-
-          <label for="board-camera-input" class="scan-native-picker-label scan-photo-fallback-label">Choose Existing Camera Photo</label>
-          <input id="board-camera-input" class="scan-native-picker" type="file" accept="image/*,.heic,.heif" aria-label="Choose an existing camera photo">
-
-          <p class="scan-picker-note">Guided Photo opens an in-page rear-camera preview with tableau brackets. Place the complete 8-column tableau inside the brackets, then capture.</p>
+          <details class="scan-advanced-entry">
+            <summary>Advanced / experimental photo tools</summary>
+            <button id="scan-start-camera" class="scan-secondary scan-photo-picker-label" type="button">Take Guided Photo</button>
+            <label for="board-camera-input" class="scan-secondary scan-photo-fallback-label">Choose Photo With Perspective Correction</label>
+            <input id="board-camera-input" class="scan-native-picker" type="file" accept="image/*,.heic,.heif" aria-label="Choose an existing camera photo for perspective correction">
+          </details>
         </div>
       </div>
 
       <div id="scan-preview-panel" class="scan-preview-panel" hidden>
 
+        <details class="scan-advanced-diagnostics">
+          <summary>Advanced Diagnostics</summary>
         <section id="scan-guided-mask-panel" class="scan-guided-mask-panel" hidden aria-label="Guided photo mask review">
           <h3>Guided-photo bracket refinement</h3>
           <p>The proven bracket crop is now the primary photo path. The mask remains available for diagnosis and safe horizontal trimming, but a failed geometry gate no longer blocks scanning. The refined color crop is handed to the unchanged screenshot scanner.</p>
@@ -248,6 +251,8 @@
           <button id="scan-confirm-crops" class="scan-primary" type="button">Confirm Tableau Shape</button>
         </div>
 
+        </details>
+
         <section id="scan-recognized-board-panel" class="scan-recognized-board-panel" hidden aria-label="Recognized FreeCell board">
           <h3>Recognized 52-card board</h3>
           <p>Cards are arranged by tableau column. Green is at least 95% confidence, yellow is 85–94%, and red is below 85% or conflicts with deck validation. Tap any card to correct it.</p>
@@ -260,7 +265,7 @@
 
           <div class="scan-board-actions">
             <button id="scan-copy-recognized-board" class="scan-secondary" type="button">Copy Board Text</button>
-            <button id="scan-load-recognized-board" class="scan-primary" type="button" disabled>Load Valid Board and Solve</button>
+            <button id="scan-load-recognized-board" class="scan-primary" type="button" disabled>Load Valid Board</button>
           </div>
         </section>
 
@@ -286,10 +291,10 @@
   <!-- Load OpenCV before RequireJS so the UMD build creates window.cv instead of registering as AMD. -->
   <script src="js/opencv.js?v=21"></script>
   <script src="js/opencv-loader.js?v=21"></script>
-  <script src="js/input.js?v=35"></script>
+  <script src="js/input.js?v=50"></script>
   <script src="data/recognition-library-v36.js?v=36"></script>
   <script src="js/photo-pipeline.js?v=41"></script>
-  <script src="js/scan.js?v=41"></script>
+  <script src="js/scan.js?v=50"></script>
   <script>
     var require = { baseUrl: "js", urlArgs: "v=48" };
   </script>
