@@ -12,6 +12,7 @@
   let voiceEnabled = false;
   let availableVoices = [];
   let activeUtterance = null;
+  let solutionPayload = null;
 
   const counter = document.getElementById("move-counter");
   const description = document.getElementById("move-description");
@@ -420,17 +421,106 @@
     render();
   }
 
+  function formatLogTime(ms) {
+    const value = Number(ms || 0);
+    return value < 1000 ? Math.round(value) + " ms" : (value / 1000).toFixed(2) + " s";
+  }
+
+  function describeMoveList(board, moveList) {
+    const lines = [];
+    let state = ns.parseBoard(board);
+    (moveList || []).forEach((move, index) => {
+      let spoken = move;
+      try { spoken = ns.describeMove(state, move); } catch (_) {}
+      lines.push(String(index + 1).padStart(3, " ") + ". " + spoken + "   [" + move + "]");
+      state = ns.applyMove(state, move);
+    });
+    return lines;
+  }
+
+  function buildSolutionLog() {
+    const data = solutionPayload || {};
+    const metadata = data.metadata || {};
+    const race = metadata.raceWinner || null;
+    const finalInfo = metadata.finalSolution || null;
+    const optimizer = metadata.optimizer || null;
+    const methods = Array.isArray(metadata.methods) ? metadata.methods : [];
+    const finalMoves = Array.isArray(data.moves) ? data.moves : [];
+    const raceMoves = race && Array.isArray(race.moveStrings) ? race.moveStrings : finalMoves;
+    const lines = [];
+
+    lines.push("FREECELL SOLUTION LOG");
+    lines.push("Generated: " + new Date().toISOString());
+    lines.push("");
+    lines.push("SUMMARY");
+    lines.push("Race winner: " + (race ? race.name : "Unknown"));
+    lines.push("Race solution: " + raceMoves.length + " moves");
+    if (optimizer) {
+      lines.push("Optimizer removed: " + Number(optimizer.savedMoves || 0) + " moves");
+      lines.push("Optimizer iterations: " + Number(optimizer.iterations || 0).toLocaleString("en-US"));
+      lines.push("Optimizer time: " + formatLogTime(optimizer.elapsedMs));
+    }
+    lines.push("Final solution: " + finalMoves.length + " moves" + (finalInfo && finalInfo.name ? " (" + finalInfo.name + ")" : ""));
+    lines.push("");
+
+    if (methods.length) {
+      lines.push("SOLVER RACE RESULTS");
+      methods.forEach(item => {
+        if (!item) return;
+        lines.push("- " + item.name + ": " + (item.validated ? item.moves + " moves" : "not solved") +
+          "; iterations " + Number(item.iterations || 0).toLocaleString("en-US") +
+          "; time " + formatLogTime(item.elapsedMs));
+      });
+      lines.push("");
+    }
+
+    lines.push("ORIGINAL BOARD");
+    lines.push((data.board || "").trim());
+    lines.push("");
+
+    lines.push("RACE WINNER MOVE LIST — " + raceMoves.length + " MOVES");
+    lines.push("Each line shows the spoken/viewer description followed by the raw solver move in brackets.");
+    lines.push(...describeMoveList(data.board, raceMoves));
+    lines.push("");
+
+    lines.push("FINAL OPTIMIZED MOVE LIST — " + finalMoves.length + " MOVES");
+    lines.push(...describeMoveList(data.board, finalMoves));
+    lines.push("");
+    return lines.join("\n");
+  }
+
+  function downloadSolutionLog() {
+    try {
+      const text = buildSolutionLog();
+      const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "freecell-solution-log-" + new Date().toISOString().replace(/[:.]/g, "-") + ".txt";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      error.hidden = false;
+      error.textContent = "Could not create solution log: " + (e.message || String(e));
+    }
+  }
+
   function init() {
     try {
       const raw = sessionStorage.getItem("freecellSolution");
       if (!raw) throw new Error("No solved board was found. Return to the solver page, solve a board, and open the graphical viewer.");
 
       const data = JSON.parse(raw);
+      solutionPayload = data;
       moves = data.moves;
       states = [ns.parseBoard(data.board)];
       moves.forEach(move => states.push(ns.applyMove(states.at(-1), move)));
 
       ns.bindControls({ goTo, next, play, pause, isPlaying: () => playing, current: () => current, total: () => moves.length });
+      const downloadLogButton = document.getElementById("download-solution-log");
+      if (downloadLogButton) downloadLogButton.addEventListener("click", downloadSolutionLog);
       enableVoiceButton.addEventListener("click", enableVoice);
       document.getElementById("speak-move").addEventListener("click", () => speak(currentInstruction()));
       document.getElementById("stop-speaking").addEventListener("click", () => stopSpeaking());

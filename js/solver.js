@@ -38,6 +38,9 @@ define([
   let moduleWrapper = null;
   let comparisonRunning = false;
   let bestComparison = null;
+  let lastComparisonRaceWinner = null;
+  let lastComparisonOutcomes = [];
+  let lastComparisonOptimizer = null;
 
   function setStatus(kind, label) {
     if (statusEl) {
@@ -191,8 +194,21 @@ define([
     }
   }
 
-  function saveSolution(board, moveStrings) {
-    sessionStorage.setItem("freecellSolution", JSON.stringify({ board, moves: moveStrings }));
+  function outcomeSummary(outcome) {
+    if (!outcome) return null;
+    return {
+      name: outcome.test ? outcome.test.name : "Unknown",
+      moves: Array.isArray(outcome.moveStrings) ? outcome.moveStrings.length : 0,
+      iterations: Number(outcome.iterations || 0),
+      elapsedMs: Number(outcome.elapsedMs || 0),
+      validated: Boolean(outcome.validated !== false && outcome.solved)
+    };
+  }
+
+  function saveSolution(board, moveStrings, metadata) {
+    const payload = { board, moves: moveStrings };
+    if (metadata) payload.metadata = metadata;
+    sessionStorage.setItem("freecellSolution", JSON.stringify(payload));
   }
 
   async function findBestSolution(board, statusCallback) {
@@ -242,6 +258,7 @@ define([
         throw new Error("None of the solver methods found a validated solution within the search limits.");
       }
 
+      const raceWinner = outcome;
       setStatus("searching", `Best race result: ${outcome.moveStrings.length} moves. Running cleanup and improvement pass…`);
       const optimized = await runOptimizer(board, outcome, setStatus);
       if (optimized.solved && optimized.moveStrings.length <= outcome.moveStrings.length) {
@@ -259,7 +276,20 @@ define([
       }
 
       if (statsEl) statsEl.textContent = outcome.moveStrings.length + " moves";
-      saveSolution(board, outcome.moveStrings);
+      saveSolution(board, outcome.moveStrings, {
+        raceWinner: {
+          ...outcomeSummary(raceWinner),
+          moveStrings: raceWinner.moveStrings.slice()
+        },
+        finalSolution: outcomeSummary(outcome),
+        optimizer: outcome.test && outcome.test.id === "optimizer" ? {
+          savedMoves: Math.max(0, raceWinner.moveStrings.length - outcome.moveStrings.length),
+          iterations: Number(outcome.iterations || 0),
+          elapsedMs: Number(outcome.elapsedMs || 0),
+          reason: outcome.reason || ""
+        } : null,
+        methods: result.outcomes.map(item => outcomeSummary(item))
+      });
       if (viewerLink) viewerLink.hidden = false;
       setStatus(
         "solved",
@@ -319,6 +349,9 @@ define([
 
     comparisonRunning = true;
     bestComparison = null;
+    lastComparisonRaceWinner = null;
+    lastComparisonOutcomes = [];
+    lastComparisonOptimizer = null;
     labOpenBest.disabled = true;
     labButton.disabled = true;
     labRun.disabled = true;
@@ -339,6 +372,7 @@ define([
         row.classList.remove("solver-lab-running");
         updateResultRow(row, outcome);
         outcome.test = test;
+        lastComparisonOutcomes.push(outcome);
         if (outcome.solved && (!bestComparison || outcome.moveStrings.length < bestComparison.moveStrings.length)) {
           bestComparison = outcome;
         }
@@ -348,6 +382,7 @@ define([
       const optimizerRow = rows.get(OPTIMIZER_TEST.id);
       if (bestComparison) {
         const raceWinner = bestComparison;
+        lastComparisonRaceWinner = raceWinner;
         optimizerRow.classList.add("solver-lab-running");
         labProgress.textContent = `Race winner: ${raceWinner.moveStrings.length} moves using ${raceWinner.test.name}. Optimizing…`;
         const optimized = await runOptimizer(board, raceWinner, function (_kind, label) {
@@ -355,6 +390,7 @@ define([
         });
         optimizerRow.classList.remove("solver-lab-running");
         optimized.test = OPTIMIZER_TEST;
+        lastComparisonOptimizer = optimized;
         updateResultRow(optimizerRow, optimized);
         if (optimized.solved && optimized.moveStrings.length <= bestComparison.moveStrings.length) {
           bestComparison = optimized;
@@ -392,7 +428,21 @@ define([
   if (labClose) labClose.addEventListener("click", function () { labPanel.hidden = true; });
   if (labOpenBest) labOpenBest.addEventListener("click", function () {
     if (!bestComparison) return;
-    saveSolution(boardEl.value.trim(), bestComparison.moveStrings);
+    const raceWinner = lastComparisonRaceWinner || bestComparison;
+    saveSolution(boardEl.value.trim(), bestComparison.moveStrings, {
+      raceWinner: {
+        ...outcomeSummary(raceWinner),
+        moveStrings: raceWinner.moveStrings.slice()
+      },
+      finalSolution: outcomeSummary(bestComparison),
+      optimizer: lastComparisonOptimizer ? {
+        savedMoves: Math.max(0, raceWinner.moveStrings.length - bestComparison.moveStrings.length),
+        iterations: Number(lastComparisonOptimizer.iterations || 0),
+        elapsedMs: Number(lastComparisonOptimizer.elapsedMs || 0),
+        reason: lastComparisonOptimizer.reason || ""
+      } : null,
+      methods: lastComparisonOutcomes.map(item => outcomeSummary(item))
+    });
     window.location.href = "solution.html";
   });
 
