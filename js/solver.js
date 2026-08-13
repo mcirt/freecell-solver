@@ -27,6 +27,18 @@ define([
     { id: "optimize", name: "fc-solve — Optimize", engine: "fc", params: "--optimize-solution" },
     { id: "reparent", name: "fc-solve — Reparent", engine: "fc", params: "--reparent-states --calc-real-depth" },
     { id: "combined", name: "fc-solve — Optimize + reparent", engine: "fc", params: "--optimize-solution --reparent-states --calc-real-depth" },
+
+    // Additional fc-solve search engines. These are intentionally kept as
+    // separate probes so this browser/WASM build can tell us which methods
+    // it actually supports. An unsupported method is reported as an error
+    // without stopping the remaining tests.
+    { id: "fc-befs", name: "fc-solve — Best-First", engine: "fc", params: "--method a-star" },
+    { id: "fc-soft-dfs", name: "fc-solve — Soft-DFS", engine: "fc", params: "--method soft-dfs" },
+    { id: "fc-bfs", name: "fc-solve — BFS", engine: "fc", params: "--method bfs" },
+    { id: "fc-dfs", name: "fc-solve — DFS", engine: "fc", params: "--method dfs" },
+    { id: "fc-random-dfs", name: "fc-solve — Random-DFS", engine: "fc", params: "--method random-dfs" },
+    { id: "fc-patsolve", name: "fc-solve — Patsolve", engine: "fc", params: "--method patsolve" },
+
     { id: "js-best", name: "Independent JS — Best-First", engine: "js", mode: "best" },
     { id: "js-astar", name: "Independent JS — A*", engine: "js", mode: "astar" }
   ];
@@ -151,16 +163,51 @@ define([
     sessionStorage.setItem("freecellSolution", JSON.stringify({ board, moves: moveStrings }));
   }
 
+  async function findBestSolution(board, statusCallback) {
+    let best = null;
+    const outcomes = [];
+
+    for (let index = 0; index < SOLVER_TESTS.length; index += 1) {
+      const test = SOLVER_TESTS[index];
+      if (statusCallback) {
+        statusCallback("searching", `Trying ${index + 1} of ${SOLVER_TESTS.length}: ${test.name}…`);
+      }
+
+      const outcome = await runTest(board, test, function (_kind, label) {
+        if (statusCallback) statusCallback("searching", `${test.name}: ${label}`);
+      });
+
+      outcome.test = test;
+      outcomes.push(outcome);
+
+      if (outcome.solved && (!best || outcome.moveStrings.length < best.moveStrings.length)) {
+        best = outcome;
+        if (statusCallback) {
+          statusCallback("searching", `New best: ${best.moveStrings.length} moves using ${test.name}.`);
+        }
+      }
+
+      await allowBrowserToPaint();
+    }
+
+    return { best, outcomes };
+  }
+
   async function solveBoard() {
-    if (!moduleWrapper) return;
+    if (!moduleWrapper || comparisonRunning) return;
     solveButton.disabled = true;
+    if (labButton) labButton.disabled = true;
+
     try {
       const board = boardEl.value.trim();
       if (!board) throw new Error("Enter all 52 cards before solving.");
-      const outcome = await runSolver(board, "", setStatus);
-      if (!outcome.solved) {
-        solveButton.disabled = false;
-        return;
+
+      setStatus("searching", "Running all solver methods to find the shortest solution…");
+      const result = await findBestSolution(board, setStatus);
+      const outcome = result.best;
+
+      if (!outcome) {
+        throw new Error("None of the solver methods found a validated solution within the search limits.");
       }
 
       if (movesEl) {
@@ -171,14 +218,19 @@ define([
           movesEl.appendChild(li);
         });
       }
-      if (statsEl) statsEl.textContent = outcome.moves.length + " moves";
+
+      if (statsEl) statsEl.textContent = outcome.moveStrings.length + " moves";
       saveSolution(board, outcome.moveStrings);
       if (viewerLink) viewerLink.hidden = false;
-      setStatus("solved", "Solution found. Opening viewer…");
+      setStatus(
+        "solved",
+        `Shortest validated solution: ${outcome.moveStrings.length} moves using ${outcome.test.name}. Opening viewer…`
+      );
       window.location.href = "solution.html";
     } catch (error) {
       showError(error);
       solveButton.disabled = false;
+      syncLabButton();
     }
   }
 

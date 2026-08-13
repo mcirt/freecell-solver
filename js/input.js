@@ -196,7 +196,9 @@
     solveButton.disabled = !canSolve;
     if (copyBoardTextButton) copyBoardTextButton.disabled = !complete;
     if (downloadBoardButton) downloadBoardButton.disabled = !complete;
-    solveSubtitle.textContent = entered < total ? "Enter all 52 cards first" : (solverReady ? "Ready to solve" : "Loading solver…");
+    solveSubtitle.textContent = entered < total
+      ? "Enter all 52 cards first"
+      : (solverReady ? "Runs every solver and opens the shortest validated solution" : "Loading solvers…");
     document.getElementById("undo-input").disabled = history.length === 0;
   }
 
