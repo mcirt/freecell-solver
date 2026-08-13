@@ -1401,3 +1401,13 @@ button, textarea, select, a { font: inherit; }
   border-color: #e7aa4b;
   box-shadow: 0 5px 0 #4d2e0c;
 }
+
+/* v58 solution log export */
+.solution-log-button {
+  width: min(100%, 34rem);
+  margin: .85rem auto 0;
+  display: block;
+  padding: .85rem 1rem;
+  border-radius: 14px;
+  font-weight: 800;
+}
