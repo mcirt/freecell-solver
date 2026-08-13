@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>FreeCell Solver — Board Input</title>
-  <link rel="stylesheet" href="css/styles.css?v=53">
+  <link rel="stylesheet" href="css/styles.css?v=54">
 </head>
 <body class="input-page">
   <main class="input-shell">
@@ -41,6 +41,14 @@
     </section>
 
     <section class="input-footer-actions">
+      <button id="solve" class="footer-action solve-action" type="button" disabled>
+        <strong>⌕ Solve This Board</strong>
+        <small id="solve-subtitle">Enter all 52 cards first</small>
+      </button>
+      <button id="solver-lab" class="footer-action solver-lab-action" type="button" disabled>
+        <strong>⚗ Compare Solver Modes</strong>
+        <small>Show the move-count differences between all solver methods</small>
+      </button>
       <button id="save-board" class="footer-action save-action" type="button">
         <strong>▣ Save Board</strong>
         <small>Quick-save this board in this browser</small>
@@ -62,21 +70,13 @@
         <small>Reload a board .txt file created by this app</small>
       </button>
       <input id="board-file-input" type="file" accept=".txt,text/plain" hidden>
-      <button id="solve" class="footer-action solve-action" type="button" disabled>
-        <strong>⌕ Solve This Board</strong>
-        <small id="solve-subtitle">Enter all 52 cards first</small>
-      </button>
-      <button id="solver-lab" class="footer-action solver-lab-action" type="button" disabled>
-        <strong>⚗ Compare Solver Modes</strong>
-        <small>Compare fc-solve with independent JS Best-First and A*</small>
-      </button>
     </section>
 
     <p id="input-message" class="input-message" role="status" aria-live="polite"></p>
     <section id="solver-lab-panel" class="solver-lab-panel" hidden aria-labelledby="solver-lab-title">
       <div class="solver-lab-heading">
         <div>
-          <p class="solver-lab-eyebrow">SOLVER COMPARISON — v53</p>
+          <p class="solver-lab-eyebrow">SOLVER COMPARISON — v54</p>
           <h2 id="solver-lab-title">Compare solution methods</h2>
           <p>Each method receives the same board. fc-solve and the independent JavaScript searches each use a 131,072-state/iteration ceiling; independent searches also have a 15-second safety limit. Only validated solved results can win.</p>
         </div>
@@ -307,14 +307,14 @@
   <!-- Load OpenCV before RequireJS so the UMD build creates window.cv instead of registering as AMD. -->
   <script src="js/opencv.js?v=21"></script>
   <script src="js/opencv-loader.js?v=21"></script>
-  <script src="js/input.js?v=53"></script>
+  <script src="js/input.js?v=54"></script>
   <script src="data/recognition-library-v36.js?v=36"></script>
   <script src="js/photo-pipeline.js?v=41"></script>
   <script src="js/scan.js?v=50"></script>
-  <script src="js/alternate-solver.js?v=53"></script>
+  <script src="js/alternate-solver.js?v=54"></script>
   <script>
-    var require = { baseUrl: "js", urlArgs: "v=53" };
+    var require = { baseUrl: "js", urlArgs: "v=54" };
   </script>
-  <script src="js/require.js?v=53" data-main="solver"></script>
+  <script src="js/require.js?v=54" data-main="solver"></script>
 </body>
 </html>
