@@ -1286,3 +1286,68 @@ button, textarea, select, a { font: inherit; }
   .solution-page .playback-panel .primary-controls button { padding:10px 5px; font-size:.78rem; }
   .solution-page .playback-panel .primary-controls .play { min-width:0; }
 }
+
+/* ===== v50 streamlined workflow ===== */
+.solution-page .top-board {
+  padding-bottom: 10px;
+}
+.solution-page .top-board + .tableau-area {
+  margin-top: 0;
+}
+.solution-page .tableau-area {
+  padding-top: 10px;
+}
+.solution-page .playback-panel {
+  margin-top: 14px;
+}
+.solution-page .viewer-toolbar {
+  margin: 10px clamp(8px,2vw,25px) 24px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-areas: "controls" "readout";
+  gap: 8px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.solution-page .compact-speech-controls,
+.solution-page .move-readout {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Normal scanner workflow: one picker, everything experimental tucked away. */
+.scan-mode-picker.streamlined-picker {
+  display: grid;
+  gap: 14px;
+}
+.scan-mode-picker.streamlined-picker > .scan-native-picker-label {
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+}
+.scan-advanced-entry,
+.scan-advanced-diagnostics {
+  margin-top: 10px;
+  border: 1px solid rgba(95,210,238,.35);
+  border-radius: 14px;
+  background: rgba(2,19,48,.58);
+}
+.scan-advanced-entry > summary,
+.scan-advanced-diagnostics > summary {
+  cursor: pointer;
+  padding: 12px 14px;
+  color: #87f0ed;
+  font-weight: 800;
+}
+.scan-advanced-entry > :not(summary) {
+  margin: 10px 14px 14px;
+}
+.scan-advanced-diagnostics > :not(summary) {
+  margin-left: 12px;
+  margin-right: 12px;
+}
+.scan-advanced-diagnostics[open] {
+  padding-bottom: 14px;
+}
