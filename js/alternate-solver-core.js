@@ -67,9 +67,12 @@
     list.push({state, move, orderBias:orderBias||0});
   }
 
-  function generateMoves(s) {
+  function generateMoves(s, fullSymmetry) {
+    fullSymmetry = Boolean(fullSymmetry);
     const out=[];
-    const firstEmptyCell = s.freecells.findIndex(c=>!c);
+    const emptyCellIndexes = [];
+    for (let i=0;i<4;i++) if (!s.freecells[i]) emptyCellIndexes.push(i);
+    const firstEmptyCell = emptyCellIndexes.length ? emptyCellIndexes[0] : -1;
     const emptyCols = [];
     for (let i=0;i<8;i++) if (!s.tableau[i].length) emptyCols.push(i);
     const firstEmptyCol = emptyCols.length ? emptyCols[0] : -1;
@@ -99,7 +102,7 @@
         if (top && canPlace(card,top)) {
           const n=cloneState(s); n.freecells[f]=null; n.tableau[d].push(card);
           pushMove(out,n,'Move a card from freecell '+f+' to stack '+d,-25);
-        } else if (!top && d===firstEmptyCol) {
+        } else if (!top && (fullSymmetry || d===firstEmptyCol)) {
           const n=cloneState(s); n.freecells[f]=null; n.tableau[d].push(card);
           pushMove(out,n,'Move a card from freecell '+f+' to stack '+d,-15);
         }
@@ -113,13 +116,13 @@
       for (let dst=0;dst<8;dst++) {
         if (src===dst) continue;
         const dc=s.tableau[dst], dstTop=dc[dc.length-1] || null;
-        if (!dstTop && dst!==firstEmptyCol) continue; // empty columns are symmetric
+        if (!dstTop && !fullSymmetry && dst!==firstEmptyCol) continue; // empty columns are symmetric during solving
         const cap=moveCapacity(s,dst);
         const max=Math.min(tail,cap);
         for (let count=1;count<=max;count++) {
           const first=sc[sc.length-count];
           if (dstTop ? !canPlace(first,dstTop) : false) continue;
-          if (!dstTop && count===sc.length) continue; // pure column permutation
+          if (!dstTop && !fullSymmetry && count===sc.length) continue; // pure column permutation is useless during solving
           const n=cloneState(s); const moved=n.tableau[src].splice(n.tableau[src].length-count,count); n.tableau[dst].push.apply(n.tableau[dst],moved);
           const text=count===1 ? 'Move a card from stack '+src+' to stack '+dst : 'Move '+count+' cards from stack '+src+' to stack '+dst;
           pushMove(out,n,text,dstTop ? -10-count : 3-count);
@@ -127,12 +130,14 @@
       }
     }
 
-    // Tableau to one representative empty freecell (freecells are symmetric).
-    if (firstEmptyCell>=0) {
+    // During solving one representative empty freecell is enough because freecells are symmetric.
+    // The optimizer asks for full symmetry so it can match exact future positions in an existing solution.
+    const freecellTargets = fullSymmetry ? emptyCellIndexes : (firstEmptyCell>=0 ? [firstEmptyCell] : []);
+    for (const target of freecellTargets) {
       for (let src=0;src<8;src++) {
         const sc=s.tableau[src]; if (!sc.length) continue;
-        const n=cloneState(s); n.freecells[firstEmptyCell]=n.tableau[src].pop();
-        pushMove(out,n,'Move a card from stack '+src+' to freecell '+firstEmptyCell,20);
+        const n=cloneState(s); n.freecells[target]=n.tableau[src].pop();
+        pushMove(out,n,'Move a card from stack '+src+' to freecell '+target,20);
       }
     }
     return out;
@@ -183,39 +188,177 @@
     moves.reverse(); return moves;
   }
 
+  function normalizeMoveText(text) {
+    return String(text || '').trim().replace(/^Move 1 cards? from stack (\d+) to stack (\d+)$/i, 'Move a card from stack $1 to stack $2');
+  }
+
+  function exactKey(s) {
+    return s.foundations.join('.') + '|' + s.freecells.map(c=>c||'-').join(',') + '|' + s.tableau.map(c=>c.join(',')).join('|');
+  }
+
+  function applyMoveText(previous, rawText) {
+    const s=cloneState(previous);
+    const text=normalizeMoveText(rawText);
+    let m;
+    if ((m=text.match(/^Move (\d+) cards? from stack (\d+) to stack (\d+)$/i))) {
+      const count=Number(m[1]), src=Number(m[2]), dst=Number(m[3]);
+      const sc=s.tableau[src], dc=s.tableau[dst];
+      if (!sc || !dc || src===dst || count<1 || sc.length<count) throw new Error('Illegal stack-to-stack move: '+text);
+      const tail=sc.slice(-count);
+      if (validTailLength(sc)<count) throw new Error('Illegal sequence in move: '+text);
+      const top=dc[dc.length-1]||null;
+      if (top && !canPlace(tail[0],top)) throw new Error('Illegal destination in move: '+text);
+      if (count>moveCapacity(s,dst)) throw new Error('Move exceeds FreeCell capacity: '+text);
+      sc.splice(sc.length-count,count); dc.push.apply(dc,tail); return s;
+    }
+    if ((m=text.match(/^Move a card from stack (\d+) to stack (\d+)$/i))) {
+      const src=Number(m[1]), dst=Number(m[2]), sc=s.tableau[src], dc=s.tableau[dst];
+      if (!sc || !dc || src===dst || !sc.length) throw new Error('Illegal stack-to-stack move: '+text);
+      const card=sc[sc.length-1], top=dc[dc.length-1]||null;
+      if (top && !canPlace(card,top)) throw new Error('Illegal destination in move: '+text);
+      sc.pop(); dc.push(card); return s;
+    }
+    if ((m=text.match(/^Move a card from stack (\d+) to freecell (\d+)$/i))) {
+      const src=Number(m[1]), dst=Number(m[2]), sc=s.tableau[src];
+      if (!sc || !sc.length || dst<0 || dst>3 || s.freecells[dst]) throw new Error('Illegal stack-to-freecell move: '+text);
+      s.freecells[dst]=sc.pop(); return s;
+    }
+    if ((m=text.match(/^Move a card from freecell (\d+) to stack (\d+)$/i))) {
+      const src=Number(m[1]), dst=Number(m[2]), card=s.freecells[src], dc=s.tableau[dst];
+      if (!card || !dc) throw new Error('Illegal freecell-to-stack move: '+text);
+      const top=dc[dc.length-1]||null;
+      if (top && !canPlace(card,top)) throw new Error('Illegal destination in move: '+text);
+      s.freecells[src]=null; dc.push(card); return s;
+    }
+    if ((m=text.match(/^Move a card from stack (\d+) to the foundations$/i))) {
+      const src=Number(m[1]), sc=s.tableau[src];
+      if (!sc || !sc.length) throw new Error('Illegal stack-to-foundation move: '+text);
+      const card=sc[sc.length-1]; if (!foundationLegal(s,card)) throw new Error('Illegal foundation move: '+text);
+      sc.pop(); s.foundations[SUIT_INDEX[suit(card)]]++; return s;
+    }
+    if ((m=text.match(/^Move a card from freecell (\d+) to the foundations$/i))) {
+      const src=Number(m[1]), card=s.freecells[src];
+      if (!card || !foundationLegal(s,card)) throw new Error('Illegal freecell-to-foundation move: '+text);
+      s.freecells[src]=null; s.foundations[SUIT_INDEX[suit(card)]]++; return s;
+    }
+    throw new Error('Unrecognized move: '+rawText);
+  }
+
   function replay(boardText,moves) {
     let s=parseBoard(boardText);
-    for (const text of moves) {
-      const candidates=generateMoves(s);
-      const found=candidates.find(x=>x.move===text);
-      if (!found) return {valid:false,state:s,failedMove:text};
-      s=found.state;
+    try {
+      for (const text of moves) s=applyMoveText(s,text);
+    } catch (error) {
+      return {valid:false,state:s,failedMove:error.message,error};
     }
     return {valid:isGoal(s),state:s};
   }
 
-  async function solve(boardText, options, onProgress) {
-    const opts=Object.assign({mode:'best',maxExpanded:131072,maxMs:15000,yieldEvery:350},options||{});
+  function buildTrajectory(boardText,moves) {
+    const states=[parseBoard(boardText)];
+    const normalized=[];
+    let current=states[0];
+    for (const raw of moves) {
+      const move=normalizeMoveText(raw);
+      current=applyMoveText(current,move);
+      normalized.push(move);
+      states.push(current);
+    }
+    return {states,moves:normalized,valid:isGoal(current)};
+  }
+
+  function findBestShortcut(states, maxDepth) {
+    let best=null;
+    const n=states.length-1;
+    for (let i=0;i<n;i++) {
+      const future=new Map();
+      for (let j=i+2;j<=n;j++) future.set(exactKey(states[j]),j);
+      // If the solution wanders away and returns to the exact same state,
+      // the entire loop can be removed safely.
+      const repeated=future.get(exactKey(states[i]));
+      if (repeated!==undefined) {
+        const saving=repeated-i;
+        if (saving>0 && (!best || saving>best.saving)) best={i,j:repeated,bridge:[],saving};
+      }
+      const first=generateMoves(states[i],true);
+      for (const a of first) {
+        const j=future.get(exactKey(a.state));
+        if (j!==undefined) {
+          const saving=(j-i)-1;
+          if (saving>0 && (!best || saving>best.saving)) best={i,j,bridge:[a.move],saving};
+        }
+      }
+      if (maxDepth<2) continue;
+      for (const a of first) {
+        const second=generateMoves(a.state,true);
+        for (const b of second) {
+          const j=future.get(exactKey(b.state));
+          if (j===undefined || j<i+3) continue;
+          const saving=(j-i)-2;
+          if (saving>0 && (!best || saving>best.saving)) best={i,j,bridge:[a.move,b.move],saving};
+        }
+      }
+    }
+    return best;
+  }
+
+  function simplifySolution(boardText,moves,options) {
+    const opts=Object.assign({maxPasses:16,maxBridgeDepth:2},options||{});
+    let trajectory=buildTrajectory(boardText,moves);
+    if (!trajectory.valid) return {validated:false,moves:trajectory.moves,moveStrings:trajectory.moves,savedMoves:0,passes:0,reason:'input solution did not validate'};
+    const originalLength=trajectory.moves.length;
+    let currentMoves=trajectory.moves.slice();
+    let passes=0;
+    while (passes<opts.maxPasses) {
+      const shortcut=findBestShortcut(trajectory.states,opts.maxBridgeDepth);
+      if (!shortcut) break;
+      currentMoves=currentMoves.slice(0,shortcut.i).concat(shortcut.bridge,currentMoves.slice(shortcut.j));
+      trajectory=buildTrajectory(boardText,currentMoves);
+      if (!trajectory.valid) throw new Error('Optimizer produced an invalid shortcut.');
+      currentMoves=trajectory.moves.slice();
+      passes++;
+    }
+    return {validated:true,moves:currentMoves,moveStrings:currentMoves,savedMoves:originalLength-currentMoves.length,passes,reason:'simplified'};
+  }
+
+  async function search(boardText, options, onProgress) {
+    const opts=Object.assign({mode:'best',maxExpanded:131072,maxMs:15000,yieldEvery:350,continueAfterFirst:false,incumbentMoves:null},options||{});
     const started=Date.now();
     const initial=parseBoard(boardText);
     const heap=new MinHeap();
     const visited=new Map();
     const root={state:initial,g:0,parent:null,move:null};
-    heap.push(root, heuristic(initial,opts.mode));
+    heap.push(root,heuristic(initial,opts.mode));
     visited.set(canonicalKey(initial),0);
     let expanded=0,generated=1,bestFoundation=0;
+    let bestMoves=null;
+    if (Array.isArray(opts.incumbentMoves) && opts.incumbentMoves.length) {
+      const checked=replay(boardText,opts.incumbentMoves);
+      if (checked.valid) bestMoves=opts.incumbentMoves.map(normalizeMoveText);
+    }
+    let bestLength=bestMoves ? bestMoves.length : Infinity;
 
-    while(heap.size && expanded<opts.maxExpanded && (Date.now()-started)<opts.maxMs) {
+    while (heap.size && expanded<opts.maxExpanded && (Date.now()-started)<opts.maxMs) {
       const node=heap.pop();
+      const remaining=52-foundationCount(node.state);
+      if (node.g + remaining >= bestLength) continue;
       if (isGoal(node.state)) {
-        const moves=reconstruct(node); const checked=replay(boardText,moves);
-        return {solved:checked.valid,validated:checked.valid,moves,moveStrings:moves,expanded,generated,elapsedMs:Date.now()-started,reason:checked.valid?'solved':'validation failed'};
+        const moves=reconstruct(node);
+        const checked=replay(boardText,moves);
+        if (checked.valid && moves.length<bestLength) {
+          bestMoves=moves; bestLength=moves.length;
+          if (onProgress) onProgress({expanded,generated,frontier:heap.size,bestFoundation:52,elapsedMs:Date.now()-started,bestMoves:bestLength,stage:'improved'});
+        }
+        if (!opts.continueAfterFirst) break;
+        continue;
       }
       expanded++;
-      const fcount=foundationCount(node.state); if(fcount>bestFoundation) bestFoundation=fcount;
-      const children=generateMoves(node.state);
+      const fcount=foundationCount(node.state); if (fcount>bestFoundation) bestFoundation=fcount;
+      const children=generateMoves(node.state,false);
       for (const child of children) {
         const g=node.g+1;
+        const lowerBound=g + (52-foundationCount(child.state));
+        if (lowerBound>=bestLength) continue;
         const key=canonicalKey(child.state);
         const old=visited.get(key);
         if (old!==undefined && old<=g) continue;
@@ -226,12 +369,48 @@
         heap.push(next,priority); generated++;
       }
       if (opts.yieldEvery && expanded%opts.yieldEvery===0) {
-        if(onProgress) onProgress({expanded,generated,frontier:heap.size,bestFoundation,elapsedMs:Date.now()-started});
+        if (onProgress) onProgress({expanded,generated,frontier:heap.size,bestFoundation,elapsedMs:Date.now()-started,bestMoves:Number.isFinite(bestLength)?bestLength:null,stage:'searching'});
         await new Promise(resolve=>setTimeout(resolve,0));
       }
+    }
+    if (bestMoves) {
+      const checked=replay(boardText,bestMoves);
+      return {solved:checked.valid,validated:checked.valid,moves:bestMoves,moveStrings:bestMoves,expanded,generated,elapsedMs:Date.now()-started,reason:checked.valid?'solved':'validation failed',bestFoundation};
     }
     return {solved:false,validated:false,moves:[],moveStrings:[],expanded,generated,elapsedMs:Date.now()-started,reason:heap.size?'search budget reached':'frontier exhausted',bestFoundation};
   }
 
-  return Object.freeze({parseBoard,solve,replay});
+  async function solve(boardText, options, onProgress) {
+    return search(boardText,options,onProgress);
+  }
+
+  async function improve(boardText, incumbentMoves, options, onProgress) {
+    const opts=Object.assign({maxExpanded:131072,maxMs:5000,yieldEvery:350,maxPasses:16,maxBridgeDepth:2},options||{});
+    const started=Date.now();
+    const initialLength=Array.isArray(incumbentMoves)?incumbentMoves.length:0;
+    const first=simplifySolution(boardText,incumbentMoves,{maxPasses:opts.maxPasses,maxBridgeDepth:opts.maxBridgeDepth});
+    if (!first.validated) throw new Error('Cannot optimize an invalid solution.');
+    if (onProgress) onProgress({stage:'simplified',startingMoves:initialLength,bestMoves:first.moveStrings.length,savedMoves:initialLength-first.moveStrings.length,expanded:0,frontier:0});
+
+    const searched=await search(boardText,{mode:'best',maxExpanded:opts.maxExpanded,maxMs:opts.maxMs,yieldEvery:opts.yieldEvery,continueAfterFirst:true,incumbentMoves:first.moveStrings},onProgress);
+    let candidate=searched.solved ? searched.moveStrings : first.moveStrings;
+    const second=simplifySolution(boardText,candidate,{maxPasses:opts.maxPasses,maxBridgeDepth:opts.maxBridgeDepth});
+    if (second.validated) candidate=second.moveStrings;
+    const checked=replay(boardText,candidate);
+    return {
+      solved:checked.valid,
+      validated:checked.valid,
+      moves:candidate,
+      moveStrings:candidate,
+      startingMoves:initialLength,
+      simplifiedMoves:first.moveStrings.length,
+      savedMoves:initialLength-candidate.length,
+      expanded:Number(searched.expanded||0),
+      generated:Number(searched.generated||0),
+      elapsedMs:Date.now()-started,
+      reason:checked.valid?'optimized':'validation failed'
+    };
+  }
+
+  return Object.freeze({parseBoard,solve,replay,improve,simplifySolution});
 }));

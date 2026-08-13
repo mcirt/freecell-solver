@@ -6,7 +6,7 @@
 
   function ensureWorker() {
     if (worker) return worker;
-    worker = new Worker('js/alternate-solver-worker.js?v=53');
+    worker = new Worker('js/alternate-solver-worker.js?v=56');
     worker.onmessage = function (event) {
       const data = event.data || {};
       const job = pending.get(data.id);
@@ -29,13 +29,21 @@
     return worker;
   }
 
-  function solve(board, options, onProgress) {
+  function run(type, board, moves, options, onProgress) {
     return new Promise(function (resolve, reject) {
       const id = nextId++;
       pending.set(id, {resolve, reject, onProgress});
-      ensureWorker().postMessage({type:'solve', id, board, options:options || {}});
+      ensureWorker().postMessage({type, id, board, moves:moves || [], options:options || {}});
     });
   }
 
-  root.FreeCellAlternateSolver = Object.freeze({solve});
+  function solve(board, options, onProgress) {
+    return run('solve', board, [], options, onProgress);
+  }
+
+  function improve(board, moves, options, onProgress) {
+    return run('improve', board, moves, options, onProgress);
+  }
+
+  root.FreeCellAlternateSolver = Object.freeze({solve, improve});
 }(window));

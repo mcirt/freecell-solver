@@ -27,21 +27,12 @@ define([
     { id: "optimize", name: "fc-solve — Optimize", engine: "fc", params: "--optimize-solution" },
     { id: "reparent", name: "fc-solve — Reparent", engine: "fc", params: "--reparent-states --calc-real-depth" },
     { id: "combined", name: "fc-solve — Optimize + reparent", engine: "fc", params: "--optimize-solution --reparent-states --calc-real-depth" },
-
-    // Additional fc-solve search engines. These are intentionally kept as
-    // separate probes so this browser/WASM build can tell us which methods
-    // it actually supports. An unsupported method is reported as an error
-    // without stopping the remaining tests.
     { id: "fc-befs", name: "fc-solve — Best-First", engine: "fc", params: "--method a-star" },
     { id: "fc-soft-dfs", name: "fc-solve — Soft-DFS", engine: "fc", params: "--method soft-dfs" },
-    { id: "fc-bfs", name: "fc-solve — BFS", engine: "fc", params: "--method bfs" },
-    { id: "fc-dfs", name: "fc-solve — DFS", engine: "fc", params: "--method dfs" },
-    { id: "fc-random-dfs", name: "fc-solve — Random-DFS", engine: "fc", params: "--method random-dfs" },
-    { id: "fc-patsolve", name: "fc-solve — Patsolve", engine: "fc", params: "--method patsolve" },
-
     { id: "js-best", name: "Independent JS — Best-First", engine: "js", mode: "best" },
     { id: "js-astar", name: "Independent JS — A*", engine: "js", mode: "astar" }
   ];
+  const OPTIMIZER_TEST = { id: "optimizer", name: "Post-race optimizer", engine: "optimizer" };
 
   let moduleWrapper = null;
   let comparisonRunning = false;
@@ -159,6 +150,46 @@ define([
     return runSolver(board, test.params || "", statusCallback);
   }
 
+  async function runOptimizer(board, incumbent, statusCallback) {
+    const started = performance.now();
+    if (!incumbent || !incumbent.solved || !Array.isArray(incumbent.moveStrings)) {
+      return { solved:false, elapsedMs:0, iterations:0, moves:[], moveStrings:[], reason:"No incumbent solution to optimize." };
+    }
+    if (!window.FreeCellAlternateSolver || typeof window.FreeCellAlternateSolver.improve !== "function") {
+      return { solved:true, validated:true, elapsedMs:0, iterations:0, moves:incumbent.moves.slice(), moveStrings:incumbent.moveStrings.slice(), reason:"Optimizer unavailable; incumbent preserved." };
+    }
+    try {
+      const result = await window.FreeCellAlternateSolver.improve(board, incumbent.moveStrings, {
+        maxExpanded: MAX_ITERS,
+        maxMs: 5000,
+        yieldEvery: 350,
+        maxPasses: 16,
+        maxBridgeDepth: 2
+      }, function (progress) {
+        if (!statusCallback) return;
+        const best = progress.bestMoves ? progress.bestMoves + " moves" : "searching";
+        const expanded = Number(progress.expanded || 0).toLocaleString();
+        const stage = progress.stage === "simplified" ? "shortcut cleanup" : "bounded Best-First";
+        statusCallback("searching", `${stage}: ${best}; expanded ${expanded} states`);
+      });
+      const moveStrings = Array.isArray(result.moveStrings) ? result.moveStrings : incumbent.moveStrings.slice();
+      return {
+        solved: Boolean(result.solved && result.validated),
+        validated: Boolean(result.validated),
+        elapsedMs: Number(result.elapsedMs || (performance.now() - started)),
+        iterations: Number(result.expanded || 0),
+        generated: Number(result.generated || 0),
+        moves: moveStrings.map(str => ({str})),
+        moveStrings,
+        savedMoves: Number(result.savedMoves || 0),
+        startingMoves: Number(result.startingMoves || incumbent.moveStrings.length),
+        reason: result.reason || ""
+      };
+    } catch (error) {
+      return { solved:false, error, elapsedMs:performance.now()-started, iterations:0, moves:[], moveStrings:[] };
+    }
+  }
+
   function saveSolution(board, moveStrings) {
     sessionStorage.setItem("freecellSolution", JSON.stringify({ board, moves: moveStrings }));
   }
@@ -202,12 +233,19 @@ define([
       const board = boardEl.value.trim();
       if (!board) throw new Error("Enter all 52 cards before solving.");
 
-      setStatus("searching", "Running all solver methods to find the shortest solution…");
+      setStatus("searching", "Running 8 reliable solver methods…");
       const result = await findBestSolution(board, setStatus);
-      const outcome = result.best;
+      let outcome = result.best;
 
       if (!outcome) {
         throw new Error("None of the solver methods found a validated solution within the search limits.");
+      }
+
+      setStatus("searching", `Best race result: ${outcome.moveStrings.length} moves. Running cleanup and improvement pass…`);
+      const optimized = await runOptimizer(board, outcome, setStatus);
+      if (optimized.solved && optimized.moveStrings.length <= outcome.moveStrings.length) {
+        optimized.test = OPTIMIZER_TEST;
+        outcome = optimized;
       }
 
       if (movesEl) {
@@ -224,7 +262,7 @@ define([
       if (viewerLink) viewerLink.hidden = false;
       setStatus(
         "solved",
-        `Shortest validated solution: ${outcome.moveStrings.length} moves using ${outcome.test.name}. Opening viewer…`
+        `Shortest validated solution after optimization: ${outcome.moveStrings.length} moves. Opening viewer…`
       );
       window.location.href = "solution.html";
     } catch (error) {
@@ -286,6 +324,7 @@ define([
     labResults.replaceChildren();
     const rows = new Map();
     SOLVER_TESTS.forEach(test => rows.set(test.id, addPendingRow(test)));
+    rows.set(OPTIMIZER_TEST.id, addPendingRow(OPTIMIZER_TEST));
 
     try {
       for (let index = 0; index < SOLVER_TESTS.length; index += 1) {
@@ -305,13 +344,32 @@ define([
         await allowBrowserToPaint();
       }
 
+      const optimizerRow = rows.get(OPTIMIZER_TEST.id);
       if (bestComparison) {
+        const raceWinner = bestComparison;
+        optimizerRow.classList.add("solver-lab-running");
+        labProgress.textContent = `Race winner: ${raceWinner.moveStrings.length} moves using ${raceWinner.test.name}. Optimizing…`;
+        const optimized = await runOptimizer(board, raceWinner, function (_kind, label) {
+          labProgress.textContent = `Post-race optimizer: ${label}`;
+        });
+        optimizerRow.classList.remove("solver-lab-running");
+        optimized.test = OPTIMIZER_TEST;
+        updateResultRow(optimizerRow, optimized);
+        if (optimized.solved && optimized.moveStrings.length <= bestComparison.moveStrings.length) {
+          bestComparison = optimized;
+        }
+
         const bestRow = rows.get(bestComparison.test.id);
         bestRow.classList.add("solver-lab-best");
-        bestRow.querySelector(".lab-result").textContent = "Best found";
-        labProgress.textContent = `Comparison complete. Shortest result: ${bestComparison.moveStrings.length} moves using ${bestComparison.test.name}.`;
+        bestRow.querySelector(".lab-result").textContent = bestComparison.test.id === "optimizer" ? "Best after cleanup" : "Best found";
+        const saved = optimized.solved ? Math.max(0, raceWinner.moveStrings.length - optimized.moveStrings.length) : 0;
+        labProgress.textContent = saved > 0
+          ? `Comparison complete. Race winner ${raceWinner.moveStrings.length}; optimizer removed ${saved} move${saved===1?"":"s"}. Final: ${bestComparison.moveStrings.length} moves.`
+          : `Comparison complete. Shortest result: ${bestComparison.moveStrings.length} moves. Optimizer found no shorter validated path within its budget.`;
         labOpenBest.disabled = false;
       } else {
+        optimizerRow.querySelector(".lab-result").textContent = "Skipped";
+        optimizerRow.querySelectorAll("td").forEach((cell,index)=>{ if(index>0) cell.textContent="—"; });
         labProgress.textContent = "Comparison complete, but none of the tested methods solved within the iteration ceiling.";
       }
     } finally {
