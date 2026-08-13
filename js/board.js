@@ -21,7 +21,42 @@
     const foundations=document.getElementById("foundations"), freecells=document.getElementById("freecells"), tableau=document.getElementById("tableau");
     foundations.replaceChildren(); ns.suitOrder.forEach(suit=>{ const slot=document.createElement("div"); slot.className="slot foundation-slot"+(state.foundations[suit]?"":" empty"); slot.dataset.symbol=ns.suitSymbols[suit]; slot.dataset.location="foundation-"+suit; if(state.foundations[suit]) slot.appendChild(ns.cardElement(state.foundations[suit])); foundations.appendChild(slot); });
     freecells.replaceChildren(); state.freecells.forEach((card,i)=>{ const slot=document.createElement("div"); slot.className="slot freecell-slot"+(card?"":" empty"); slot.dataset.symbol="⚜"; slot.dataset.location="freecell-"+i; if(card) slot.appendChild(ns.cardElement(card)); freecells.appendChild(slot); });
-    tableau.replaceChildren(); state.tableau.forEach((column,i)=>{ const col=document.createElement("div"); col.className="column"; col.dataset.location="stack-"+i; const number=document.createElement("div"); number.className="column-number"; number.textContent=i+1; const cards=document.createElement("div"); cards.className="cards"; column.forEach((card,j)=>{ const el=ns.cardElement(card); el.style.top="calc("+j+" * var(--overlap))"; el.style.zIndex=String(j+1); cards.appendChild(el); }); col.append(number,cards); tableau.appendChild(col); });
+    tableau.replaceChildren(); state.tableau.forEach((column,i)=>{ const col=document.createElement("div"); col.className="column"; col.dataset.location="stack-"+i; const cards=document.createElement("div"); cards.className="cards"; column.forEach((card,j)=>{ const el=ns.cardElement(card); el.style.top="calc("+j+" * var(--overlap))"; el.style.zIndex=String(j+1); cards.appendChild(el); }); col.append(cards); tableau.appendChild(col); });
+  };
+
+  ns.showMoveAftermath = function (details, beforeState) {
+    document.querySelectorAll('.just-moved,.move-origin-placeholder').forEach(el=>el.classList.remove('just-moved'));
+    document.querySelectorAll('.move-origin-placeholder').forEach(el=>el.remove());
+    if (!details || !beforeState) return;
+
+    (details.cards || []).forEach(card => {
+      const el = document.querySelector('.card[data-card="'+card+'"]');
+      if (el) el.classList.add('just-moved');
+    });
+
+    if (details.source && details.source.startsWith('stack-')) {
+      const sourceIndex = Number(details.source.split('-')[1]);
+      const count = Math.max(1, (details.cards || []).length);
+      const sourceBefore = beforeState.tableau[sourceIndex] || [];
+      const firstIndex = Math.max(0, sourceBefore.length - count);
+      const cards = document.querySelector('[data-location="stack-'+sourceIndex+'"] .cards');
+      if (cards) {
+        for (let i = 0; i < count; i += 1) {
+          const placeholder = document.createElement('div');
+          placeholder.className = 'move-origin-placeholder';
+          placeholder.style.top = 'calc('+(firstIndex+i)+' * var(--overlap))';
+          placeholder.style.zIndex = String(firstIndex+i+1);
+          cards.appendChild(placeholder);
+        }
+      }
+    } else if (details.source && details.source.startsWith('freecell-')) {
+      const slot = document.querySelector('[data-location="'+details.source+'"]');
+      if (slot) {
+        const placeholder = document.createElement('div');
+        placeholder.className = 'move-origin-placeholder freecell-origin-placeholder';
+        slot.appendChild(placeholder);
+      }
+    }
   };
   const spokenRanks = { A:"ace", J:"jack", Q:"queen", K:"king", T:"10" };
   const spokenSuits = { S:"spade", H:"heart", D:"diamond", C:"clover" };

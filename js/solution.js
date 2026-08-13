@@ -5,6 +5,8 @@
   let states = [];
   let current = 0;
   let playing = false;
+  let lastMoveDetails = null;
+  let lastMoveBeforeState = null;
   let animating = false;
   let speaking = false;
   let voiceEnabled = false;
@@ -318,9 +320,9 @@
     document.getElementById("first").disabled = atStart || animating;
     document.getElementById("previous").disabled = atStart || animating;
     document.getElementById("next").disabled = atEnd || animating;
-    document.getElementById("last").disabled = atEnd || animating;
-    document.getElementById("play").disabled = playing || animating || moves.length === 0;
-    document.getElementById("pause").disabled = !playing && !speaking;
+    const playButton = document.getElementById("play");
+    playButton.disabled = (!playing && animating) || moves.length === 0;
+    playButton.textContent = playing ? "Ⅱ Pause" : "▶ Play";
     enableVoiceButton.disabled = !canSpeak || speaking;
     enableVoiceButton.textContent = voiceEnabled ? "✓ Voice Enabled" : "🔊 Enable Voice";
     document.getElementById("speak-move").disabled = !canSpeak || !voiceEnabled || atEnd || speaking;
@@ -329,6 +331,7 @@
 
   function render() {
     ns.renderState(states[current]);
+    if (lastMoveDetails && lastMoveBeforeState) ns.showMoveAftermath(lastMoveDetails, lastMoveBeforeState);
     if (current >= moves.length) {
       counter.textContent = "Move " + moves.length + " of " + moves.length;
       description.textContent = "Solution complete.";
@@ -355,6 +358,8 @@
     }
 
     animating = true;
+    lastMoveDetails = null;
+    lastMoveBeforeState = null;
     setControls();
 
     const moveText = moves[current];
@@ -362,7 +367,8 @@
     description.textContent = spokenText;
     if (autoSpeak.checked && voiceEnabled) await speak(spokenText);
 
-    const details = ns.moveDetails(states[current], moveText);
+    const beforeState = states[current];
+    const details = ns.moveDetails(beforeState, moveText);
     const nextState = states[current + 1];
     const selected = Number(speed.value);
     const duration = selected === 0 ? 0 : Math.max(260, Math.min(700, selected * 0.62));
@@ -371,6 +377,8 @@
     else await ns.animateMove(details, nextState, duration);
 
     current += 1;
+    lastMoveDetails = details;
+    lastMoveBeforeState = beforeState;
     animating = false;
     render();
 
@@ -406,6 +414,8 @@
   function goTo(index) {
     pause();
     current = Math.max(0, Math.min(moves.length, index));
+    lastMoveDetails = null;
+    lastMoveBeforeState = null;
     ns.clearHighlights();
     render();
   }
@@ -420,7 +430,7 @@
       states = [ns.parseBoard(data.board)];
       moves.forEach(move => states.push(ns.applyMove(states.at(-1), move)));
 
-      ns.bindControls({ goTo, next, play, pause, current: () => current, total: () => moves.length });
+      ns.bindControls({ goTo, next, play, pause, isPlaying: () => playing, current: () => current, total: () => moves.length });
       enableVoiceButton.addEventListener("click", enableVoice);
       document.getElementById("speak-move").addEventListener("click", () => speak(currentInstruction()));
       document.getElementById("stop-speaking").addEventListener("click", () => stopSpeaking());
