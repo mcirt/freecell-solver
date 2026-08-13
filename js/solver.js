@@ -22,6 +22,7 @@ define([
   const labResults = document.getElementById("solver-lab-results");
 
   const MAX_ITERS = 131072;
+  const OPTIMIZER_MAX_ITERS = 524288;
   const SOLVER_TESTS = [
     { id: "default", name: "fc-solve — Default", engine: "fc", params: "" },
     { id: "optimize", name: "fc-solve — Optimize", engine: "fc", params: "--optimize-solution" },
@@ -160,8 +161,8 @@ define([
     }
     try {
       const result = await window.FreeCellAlternateSolver.improve(board, incumbent.moveStrings, {
-        maxExpanded: MAX_ITERS,
-        maxMs: 5000,
+        maxExpanded: OPTIMIZER_MAX_ITERS,
+        maxMs: 10000,
         yieldEvery: 350,
         maxPasses: 16,
         maxBridgeDepth: 2
