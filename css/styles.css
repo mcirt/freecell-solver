@@ -1351,3 +1351,37 @@ button, textarea, select, a { font: inherit; }
 .scan-advanced-diagnostics[open] {
   padding-bottom: 14px;
 }
+
+
+/* ===== v51 visible origin + content-fitted tableau ===== */
+.solution-page .move-origin-placeholder {
+  border:4px dashed #ffd83d !important;
+  background:rgba(255,216,61,.14) !important;
+  box-shadow:
+    0 0 0 2px rgba(255,216,61,.22),
+    0 0 14px rgba(255,216,61,.95),
+    inset 0 0 12px rgba(255,216,61,.22) !important;
+  filter:drop-shadow(0 0 4px rgba(255,216,61,.95));
+}
+.solution-page .tableau-area {
+  min-height:0;
+  height:auto;
+  padding-bottom:14px;
+}
+.solution-page .cards {
+  min-height:0;
+  height:var(--tableau-column-height, 470px);
+}
+@media (max-width:700px) {
+  .solution-page .tableau-area {
+    min-height:0;
+    padding-bottom:10px;
+  }
+  .solution-page .cards {
+    min-height:0;
+    height:var(--tableau-column-height, 420px);
+  }
+  .solution-page .playback-panel {
+    margin-top:8px;
+  }
+}
