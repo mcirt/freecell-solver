@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>FreeCell Solver — Board Input</title>
-  <link rel="stylesheet" href="css/styles.css?v=54">
+  <link rel="stylesheet" href="css/styles.css?v=56">
 </head>
 <body class="input-page">
   <main class="input-shell">
@@ -76,9 +76,9 @@
     <section id="solver-lab-panel" class="solver-lab-panel" hidden aria-labelledby="solver-lab-title">
       <div class="solver-lab-heading">
         <div>
-          <p class="solver-lab-eyebrow">SOLVER COMPARISON — v54</p>
+          <p class="solver-lab-eyebrow">SOLVER COMPARISON — v56</p>
           <h2 id="solver-lab-title">Compare solution methods</h2>
-          <p>Each method receives the same board. fc-solve and the independent JavaScript searches each use a 131,072-state/iteration ceiling; independent searches also have a 15-second safety limit. Only validated solved results can win.</p>
+          <p>Eight reliable solver methods receive the same board. The shortest validated race result then goes through a safe shortcut cleanup plus a bounded Best-First improvement pass before the final solution is selected.</p>
         </div>
         <button id="solver-lab-close" class="solver-lab-close" type="button" aria-label="Close solver comparison">×</button>
       </div>
@@ -96,13 +96,15 @@
       <details class="solver-lab-details">
         <summary>Methods being tested</summary>
         <ul>
-          <li><strong>fc-solve — Current default:</strong> the baseline solver setup.</li>
-          <li><strong>fc-solve — Optimize solution:</strong> asks fc-solve to shorten the solution path it finds.</li>
-          <li><strong>fc-solve — Reparent states:</strong> lets an already-seen state adopt a shorter route.</li>
+          <li><strong>fc-solve — Default:</strong> the baseline solver setup.</li>
+          <li><strong>fc-solve — Optimize:</strong> asks fc-solve to shorten the solution path it finds.</li>
+          <li><strong>fc-solve — Reparent:</strong> lets an already-seen state adopt a shorter route.</li>
           <li><strong>fc-solve — Optimize + reparent:</strong> combines both shortening features.</li>
-          <li><strong>Independent JS — Best-First:</strong> a new browser-native solver written separately from fc-solve. It prioritizes positions that appear closer to completion.</li>
-          <li><strong>Independent JS — A*:</strong> the same independent move engine using path length plus a FreeCell-specific heuristic.</li>
-          <li><strong>Experimental:</strong> these JavaScript engines are comparison tools, not replacements for fc-solve yet. Every returned solution is replay-validated before it can be selected.</li>
+          <li><strong>fc-solve — Best-First:</strong> uses fc-solve's Best-First search mode.</li>
+          <li><strong>fc-solve — Soft-DFS:</strong> uses the stable Soft-DFS mode exposed by this WASM build.</li>
+          <li><strong>Independent JS — Best-First:</strong> browser-native Best-First search.</li>
+          <li><strong>Independent JS — A*:</strong> browser-native A* search.</li>
+          <li><strong>Post-race optimizer:</strong> removes exact loops and one/two-move detours when the same future state can be reached more directly, then spends up to five seconds searching only for paths shorter than the current winner. Every final result is replay-validated.</li>
         </ul>
       </details>
     </section>
@@ -307,14 +309,14 @@
   <!-- Load OpenCV before RequireJS so the UMD build creates window.cv instead of registering as AMD. -->
   <script src="js/opencv.js?v=21"></script>
   <script src="js/opencv-loader.js?v=21"></script>
-  <script src="js/input.js?v=54"></script>
+  <script src="js/input.js?v=56"></script>
   <script src="data/recognition-library-v36.js?v=36"></script>
   <script src="js/photo-pipeline.js?v=41"></script>
   <script src="js/scan.js?v=50"></script>
-  <script src="js/alternate-solver.js?v=54"></script>
+  <script src="js/alternate-solver.js?v=56"></script>
   <script>
-    var require = { baseUrl: "js", urlArgs: "v=54" };
+    var require = { baseUrl: "js", urlArgs: "v=56" };
   </script>
-  <script src="js/require.js?v=54" data-main="solver"></script>
+  <script src="js/require.js?v=56" data-main="solver"></script>
 </body>
 </html>
