@@ -1385,3 +1385,19 @@ button, textarea, select, a { font: inherit; }
     margin-top:8px;
   }
 }
+
+
+/* v52 portable-board controls */
+.board-text-action { background: linear-gradient(#2879a8, #16567e); border-color: #4ab7df; box-shadow: 0 5px 0 #0c3856; }
+.board-download-action { background: linear-gradient(#1b8d72, #11644f); border-color: #50d5af; box-shadow: 0 5px 0 #0a4537; }
+.footer-action:disabled { opacity: .48; box-shadow: none; }
+@media (min-width: 900px) {
+  .input-footer-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* v53 — portable board-file import + independent browser solver comparison */
+.board-upload-action {
+  background: linear-gradient(#a36b1e, #744813);
+  border-color: #e7aa4b;
+  box-shadow: 0 5px 0 #4d2e0c;
+}
