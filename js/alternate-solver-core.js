@@ -302,6 +302,75 @@
     return best;
   }
 
+
+
+  function movedCardAtState(state, rawText) {
+    const text=normalizeMoveText(rawText);
+    let m;
+    if ((m=text.match(/^Move a card from stack (\d+) to (?:stack \d+|freecell \d+|the foundations)$/i))) {
+      const src=Number(m[1]), col=state.tableau[src];
+      return col && col.length ? col[col.length-1] : null;
+    }
+    if ((m=text.match(/^Move a card from freecell (\d+) to (?:stack \d+|the foundations)$/i))) {
+      return state.freecells[Number(m[1])] || null;
+    }
+    return null;
+  }
+
+  function foundationMoveForParking(state, rawText) {
+    const text=normalizeMoveText(rawText);
+    let m;
+    if ((m=text.match(/^Move a card from stack (\d+) to (?:stack \d+|freecell \d+)$/i))) {
+      const src=Number(m[1]), col=state.tableau[src];
+      if (!col || !col.length) return null;
+      const card=col[col.length-1];
+      return foundationLegal(state,card) ? {card,move:'Move a card from stack '+src+' to the foundations'} : null;
+    }
+    if ((m=text.match(/^Move a card from freecell (\d+) to stack \d+$/i))) {
+      const src=Number(m[1]), card=state.freecells[src];
+      return card && foundationLegal(state,card) ? {card,move:'Move a card from freecell '+src+' to the foundations'} : null;
+    }
+    return null;
+  }
+
+  function isFoundationMoveOfCard(state, rawText, card) {
+    const text=normalizeMoveText(rawText);
+    if (!/to the foundations$/i.test(text)) return false;
+    return movedCardAtState(state,text) === card;
+  }
+
+  function applyFoundationShortcuts(boardText,moves,maxPasses) {
+    let current=moves.map(normalizeMoveText);
+    let saved=0, passes=0;
+    const limit=Math.max(1,Number(maxPasses||16));
+    while (passes<limit) {
+      const trajectory=buildTrajectory(boardText,current);
+      if (!trajectory.valid) return {validated:false,moveStrings:current,savedMoves:saved,passes};
+      let changed=false;
+      for (let i=0;i<current.length;i++) {
+        const shortcut=foundationMoveForParking(trajectory.states[i],current[i]);
+        if (!shortcut) continue;
+        for (let j=i+1;j<current.length;j++) {
+          if (!isFoundationMoveOfCard(trajectory.states[j],current[j],shortcut.card)) continue;
+          const candidate=current.slice();
+          candidate[i]=shortcut.move;
+          candidate.splice(j,1);
+          const checked=replay(boardText,candidate);
+          if (checked.valid) {
+            current=candidate;
+            saved++;
+            passes++;
+            changed=true;
+          }
+          break;
+        }
+        if (changed) break;
+      }
+      if (!changed) break;
+    }
+    return {validated:replay(boardText,current).valid,moveStrings:current,savedMoves:saved,passes};
+  }
+
   function simplifySolution(boardText,moves,options) {
     const opts=Object.assign({maxPasses:16,maxBridgeDepth:2},options||{});
     let trajectory=buildTrajectory(boardText,moves);
@@ -388,12 +457,16 @@
     const opts=Object.assign({maxExpanded:131072,maxMs:5000,yieldEvery:350,maxPasses:16,maxBridgeDepth:2},options||{});
     const started=Date.now();
     const initialLength=Array.isArray(incumbentMoves)?incumbentMoves.length:0;
-    const first=simplifySolution(boardText,incumbentMoves,{maxPasses:opts.maxPasses,maxBridgeDepth:opts.maxBridgeDepth});
+    const foundationFirst=applyFoundationShortcuts(boardText,incumbentMoves,opts.maxPasses);
+    if (!foundationFirst.validated) throw new Error('Foundation shortcut pass produced an invalid solution.');
+    const first=simplifySolution(boardText,foundationFirst.moveStrings,{maxPasses:opts.maxPasses,maxBridgeDepth:opts.maxBridgeDepth});
     if (!first.validated) throw new Error('Cannot optimize an invalid solution.');
-    if (onProgress) onProgress({stage:'simplified',startingMoves:initialLength,bestMoves:first.moveStrings.length,savedMoves:initialLength-first.moveStrings.length,expanded:0,frontier:0});
+    if (onProgress) onProgress({stage:'simplified',startingMoves:initialLength,bestMoves:first.moveStrings.length,savedMoves:initialLength-first.moveStrings.length,foundationShortcuts:foundationFirst.savedMoves,expanded:0,frontier:0});
 
     const searched=await search(boardText,{mode:'best',maxExpanded:opts.maxExpanded,maxMs:opts.maxMs,yieldEvery:opts.yieldEvery,continueAfterFirst:true,incumbentMoves:first.moveStrings},onProgress);
     let candidate=searched.solved ? searched.moveStrings : first.moveStrings;
+    const foundationSecond=applyFoundationShortcuts(boardText,candidate,opts.maxPasses);
+    if (foundationSecond.validated) candidate=foundationSecond.moveStrings;
     const second=simplifySolution(boardText,candidate,{maxPasses:opts.maxPasses,maxBridgeDepth:opts.maxBridgeDepth});
     if (second.validated) candidate=second.moveStrings;
     const checked=replay(boardText,candidate);
@@ -404,6 +477,7 @@
       moveStrings:candidate,
       startingMoves:initialLength,
       simplifiedMoves:first.moveStrings.length,
+      foundationShortcuts:Number(foundationFirst.savedMoves||0)+Number(foundationSecond && foundationSecond.savedMoves||0),
       savedMoves:initialLength-candidate.length,
       expanded:Number(searched.expanded||0),
       generated:Number(searched.generated||0),
@@ -412,5 +486,5 @@
     };
   }
 
-  return Object.freeze({parseBoard,solve,replay,improve,simplifySolution});
+  return Object.freeze({parseBoard,solve,replay,improve,simplifySolution,applyFoundationShortcuts});
 }));

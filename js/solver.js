@@ -165,7 +165,7 @@ define([
     try {
       const result = await window.FreeCellAlternateSolver.improve(board, incumbent.moveStrings, {
         maxExpanded: OPTIMIZER_MAX_ITERS,
-        maxMs: 10000,
+        maxMs: 5000,
         yieldEvery: 350,
         maxPasses: 16,
         maxBridgeDepth: 2
@@ -173,7 +173,7 @@ define([
         if (!statusCallback) return;
         const best = progress.bestMoves ? progress.bestMoves + " moves" : "searching";
         const expanded = Number(progress.expanded || 0).toLocaleString();
-        const stage = progress.stage === "simplified" ? "shortcut cleanup" : "bounded Best-First";
+        const stage = progress.stage === "simplified" ? "foundation + shortcut cleanup" : "bounded Best-First";
         statusCallback("searching", `${stage}: ${best}; expanded ${expanded} states`);
       });
       const moveStrings = Array.isArray(result.moveStrings) ? result.moveStrings : incumbent.moveStrings.slice();
