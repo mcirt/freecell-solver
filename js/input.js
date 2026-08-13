@@ -16,6 +16,10 @@
   const hiddenBoardEl = document.getElementById("board");
   const solveButton = document.getElementById("solve");
   const solveSubtitle = document.getElementById("solve-subtitle");
+  const copyBoardTextButton = document.getElementById("copy-board-text");
+  const downloadBoardButton = document.getElementById("download-board");
+  const uploadBoardButton = document.getElementById("upload-board-file");
+  const boardFileInput = document.getElementById("board-file-input");
   const messageEl = document.getElementById("input-message");
   const activeColumnLabel = document.getElementById("active-column-label");
   const activeCardLabel = document.getElementById("active-card-label");
@@ -51,8 +55,46 @@
     return null;
   }
 
+  function boardToPortableText() {
+    return columns.map(column => column.join(" ")).join("\n") + "\n";
+  }
+
   function boardToSolverText() {
     return columns.map(column => ": " + column.join(" ")).join("\n") + "\n";
+  }
+
+  async function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    area.remove();
+    if (!ok) throw new Error("Clipboard access is unavailable in this browser.");
+  }
+
+  function downloadText(filename, text) {
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1200);
+  }
+
+  function boardFilename() {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    return "freecell-board-" + stamp + ".txt";
   }
 
   function announce(text, kind) {
@@ -149,8 +191,11 @@
     activeCardLabel.textContent = "Card " + (active.row + 1) + " of " + columns[active.column].length;
     remainingLabel.textContent = (total - entered) + " cards remaining";
     hiddenBoardEl.value = entered === total ? boardToSolverText() : "";
-    const canSolve = entered === total && solverReady;
+    const complete = entered === total;
+    const canSolve = complete && solverReady;
     solveButton.disabled = !canSolve;
+    if (copyBoardTextButton) copyBoardTextButton.disabled = !complete;
+    if (downloadBoardButton) downloadBoardButton.disabled = !complete;
     solveSubtitle.textContent = entered < total ? "Enter all 52 cards first" : (solverReady ? "Ready to solve" : "Loading solver…");
     document.getElementById("undo-input").disabled = history.length === 0;
   }
@@ -210,8 +255,35 @@
     }
   }
 
+
+  async function copyBoardText() {
+    if (countEntered() !== 52) {
+      announce("Enter all 52 cards before copying board text.", "error");
+      return;
+    }
+    try {
+      await copyText(boardToPortableText());
+      announce("Board text copied. It contains 8 lines, one tableau column per line.", "success");
+    } catch (error) {
+      announce("The board text could not be copied: " + error.message, "error");
+    }
+  }
+
+  function downloadBoard() {
+    if (countEntered() !== 52) {
+      announce("Enter all 52 cards before downloading the board.", "error");
+      return;
+    }
+    try {
+      downloadText(boardFilename(), boardToPortableText());
+      announce("Board downloaded as a portable text file.", "success");
+    } catch (error) {
+      announce("The board file could not be downloaded: " + error.message, "error");
+    }
+  }
+
   function importColumns(rawColumns, options) {
-    const settings = Object.assign({ solve: false, closeScanner: true }, options || {});
+    const settings = Object.assign({ solve: false, closeScanner: true, sourceLabel: "Board" }, options || {});
 
     try {
       if (!Array.isArray(rawColumns) || rawColumns.length !== 8) {
@@ -244,7 +316,7 @@
       pushHistory();
       columns = imported.map(column => column.slice());
       active = { column: 7, row: 5 };
-      announce("Scanned board loaded. Choose Solve This Board or Compare Solver Modes.", "success");
+      announce(settings.sourceLabel + " loaded. Choose Solve This Board or Compare Solver Modes.", "success");
       renderAll();
 
       if (settings.closeScanner) {
@@ -267,8 +339,34 @@
 
       return { ok: true, columns: columns.map(column => column.slice()) };
     } catch (error) {
-      announce("The scanned board could not be loaded: " + error.message, "error");
+      announce("The board could not be loaded: " + error.message, "error");
       return { ok: false, error: error.message };
+    }
+  }
+
+  function parsePortableBoardText(text) {
+    const lines = String(text || "").trim().split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    if (lines.length !== 8) throw new Error("Board file must contain exactly 8 non-empty lines.");
+    return lines.map((line, columnIndex) => {
+      const cards = line.replace(/^:\s*/, "").split(/\s+/).filter(Boolean);
+      if (cards.length !== COLUMN_SIZES[columnIndex]) {
+        throw new Error("Column " + (columnIndex + 1) + " must contain " + COLUMN_SIZES[columnIndex] + " cards.");
+      }
+      return cards;
+    });
+  }
+
+  async function uploadBoardFile(file) {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const imported = parsePortableBoardText(text);
+      const result = importColumns(imported, { closeScanner:false, sourceLabel:"Board file" });
+      if (result.ok) announce("Board file loaded successfully: " + file.name, "success");
+    } catch (error) {
+      announce("The board file could not be loaded: " + error.message, "error");
+    } finally {
+      if (boardFileInput) boardFileInput.value = "";
     }
   }
 
@@ -299,6 +397,12 @@
   document.getElementById("clear-board").addEventListener("click", clearBoard);
   document.getElementById("save-board").addEventListener("click", saveBoard);
   document.getElementById("load-board").addEventListener("click", loadBoard);
+  if (copyBoardTextButton) copyBoardTextButton.addEventListener("click", copyBoardText);
+  if (downloadBoardButton) downloadBoardButton.addEventListener("click", downloadBoard);
+  if (uploadBoardButton && boardFileInput) {
+    uploadBoardButton.addEventListener("click", () => boardFileInput.click());
+    boardFileInput.addEventListener("change", () => uploadBoardFile(boardFileInput.files && boardFileInput.files[0]));
+  }
   document.getElementById("how-to").addEventListener("click", () => {
     window.alert("Enter cards down Column 1, then Column 2, through Column 8. Tap any entered card to clear and replace it. Used cards are disabled automatically.");
   });
@@ -312,6 +416,12 @@
     },
     getColumns() {
       return columns.map(column => column.slice());
+    },
+    getBoardText() {
+      return boardToPortableText();
+    },
+    getFcSolveText() {
+      return boardToSolverText();
     }
   });
 

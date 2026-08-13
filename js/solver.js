@@ -23,10 +23,12 @@ define([
 
   const MAX_ITERS = 131072;
   const SOLVER_TESTS = [
-    { id: "default", name: "Current default", params: "" },
-    { id: "optimize", name: "Optimize solution", params: "--optimize-solution" },
-    { id: "reparent", name: "Reparent states", params: "--reparent-states --calc-real-depth" },
-    { id: "combined", name: "Optimize + reparent", params: "--optimize-solution --reparent-states --calc-real-depth" }
+    { id: "default", name: "fc-solve — Default", engine: "fc", params: "" },
+    { id: "optimize", name: "fc-solve — Optimize", engine: "fc", params: "--optimize-solution" },
+    { id: "reparent", name: "fc-solve — Reparent", engine: "fc", params: "--reparent-states --calc-real-depth" },
+    { id: "combined", name: "fc-solve — Optimize + reparent", engine: "fc", params: "--optimize-solution --reparent-states --calc-real-depth" },
+    { id: "js-best", name: "Independent JS — Best-First", engine: "js", mode: "best" },
+    { id: "js-astar", name: "Independent JS — A*", engine: "js", mode: "astar" }
   ];
 
   let moduleWrapper = null;
@@ -105,6 +107,44 @@ define([
         moveStrings: []
       };
     }
+  }
+
+  async function runAlternateSolver(board, mode, statusCallback) {
+    const started = performance.now();
+    if (!window.FreeCellAlternateSolver) {
+      return { solved:false, error:new Error("Independent JavaScript solver did not load."), elapsedMs:0, iterations:0, moves:[], moveStrings:[] };
+    }
+    try {
+      const result = await window.FreeCellAlternateSolver.solve(board, {
+        mode: mode,
+        maxExpanded: MAX_ITERS,
+        maxMs: 15000,
+        yieldEvery: 350
+      }, function (progress) {
+        if (!statusCallback) return;
+        const expanded = Number(progress.expanded || 0).toLocaleString();
+        const frontier = Number(progress.frontier || 0).toLocaleString();
+        statusCallback("searching", "expanded " + expanded + " states; frontier " + frontier);
+      });
+      const moveStrings = Array.isArray(result.moveStrings) ? result.moveStrings : [];
+      return {
+        solved: Boolean(result.solved && result.validated),
+        validated: Boolean(result.validated),
+        elapsedMs: Number(result.elapsedMs || (performance.now() - started)),
+        iterations: Number(result.expanded || 0),
+        generated: Number(result.generated || 0),
+        moves: moveStrings.map(str => ({str})),
+        moveStrings,
+        reason: result.reason || ""
+      };
+    } catch (error) {
+      return { solved:false, error, elapsedMs:performance.now()-started, iterations:0, moves:[], moveStrings:[] };
+    }
+  }
+
+  async function runTest(board, test, statusCallback) {
+    if (test.engine === "js") return runAlternateSolver(board, test.mode, statusCallback);
+    return runSolver(board, test.params || "", statusCallback);
   }
 
   function saveSolution(board, moveStrings) {
@@ -201,7 +241,7 @@ define([
         const row = rows.get(test.id);
         row.classList.add("solver-lab-running");
         labProgress.textContent = `Testing ${index + 1} of ${SOLVER_TESTS.length}: ${test.name}…`;
-        const outcome = await runSolver(board, test.params, function (_kind, label) {
+        const outcome = await runTest(board, test, function (_kind, label) {
           labProgress.textContent = `${test.name}: ${label}`;
         });
         row.classList.remove("solver-lab-running");
