@@ -28,53 +28,57 @@
       </div>
     </section>
 
+    <section class="viewer-toolbar" aria-label="Solution guidance">
+      <div class="speech-controls compact-speech-controls" aria-label="Spoken move controls">
+        <div class="speech-toggle-row">
+          <label class="speech-toggle">
+            <input id="auto-speak" type="checkbox" checked>
+            <span>Speak</span>
+          </label>
+          <label class="speech-toggle">
+            <input id="show-captions" type="checkbox" checked>
+            <span>Captions</span>
+          </label>
+        </div>
+        <div class="speech-buttons">
+          <button id="enable-voice" class="enable-voice" type="button">🔊 Voice</button>
+          <button id="speak-move" type="button">Repeat</button>
+          <button id="stop-speaking" type="button">■ Stop</button>
+        </div>
+        <details class="voice-settings">
+          <summary>Voice settings</summary>
+          <label class="speech-voice-label" for="speech-voice">Voice
+            <select id="speech-voice">
+              <option value="">Default iPhone voice</option>
+            </select>
+          </label>
+          <label class="speech-rate-label" for="speech-rate">Voice speed
+            <select id="speech-rate">
+              <option value="0.75">Slower</option>
+              <option value="0.9" selected>Normal</option>
+              <option value="1.05">Faster</option>
+            </select>
+          </label>
+          <p id="speech-status" class="speech-status" aria-live="polite"></p>
+        </details>
+      </div>
+      <div class="move-readout">
+        <strong id="move-counter" class="panel-counter">Move 0 of 0</strong>
+        <div class="move-description" id="move-description">Starting position</div>
+        <div id="spoken-caption" class="spoken-caption" aria-live="polite"></div>
+      </div>
+    </section>
+
     <section class="tableau-area">
       <div id="tableau" class="tableau" aria-label="Eight tableau columns"></div>
     </section>
 
-    <section class="player-panel">
-      <div class="move-description" id="move-description">Starting position</div>
-      <strong id="move-counter" class="panel-counter">Move 0 of 0</strong>
-      <div class="speech-controls" aria-label="Spoken move controls">
-        <div class="speech-toggle-row">
-          <label class="speech-toggle">
-            <input id="auto-speak" type="checkbox" checked>
-            <span>Speak each move</span>
-          </label>
-          <label class="speech-toggle">
-            <input id="show-captions" type="checkbox" checked>
-            <span>Show captions</span>
-          </label>
-        </div>
-        <div id="spoken-caption" class="spoken-caption" aria-live="polite"></div>
-        <div class="speech-buttons">
-          <button id="enable-voice" class="enable-voice" type="button">🔊 Enable Voice</button>
-          <button id="speak-move" type="button">🔊 Speak Move</button>
-          <button id="stop-speaking" type="button">■ Stop Voice</button>
-        </div>
-        <label class="speech-voice-label" for="speech-voice">Voice
-          <select id="speech-voice">
-            <option value="">Default iPhone voice</option>
-          </select>
-        </label>
-        <label class="speech-rate-label" for="speech-rate">Voice speed
-          <select id="speech-rate">
-            <option value="0.75">Slower</option>
-            <option value="0.9" selected>Normal</option>
-            <option value="1.05">Faster</option>
-          </select>
-        </label>
-        <p id="speech-status" class="speech-status" aria-live="polite"></p>
-      </div>
+    <section class="player-panel playback-panel">
       <div class="controls primary-controls">
         <button id="first" type="button">|◀ First</button>
         <button id="previous" type="button">◀ Previous</button>
-        <button id="next" type="button">Next ▶</button>
-        <button id="last" type="button">Last ▶|</button>
-      </div>
-      <div class="controls secondary-controls">
         <button id="play" class="play" type="button">▶ Play</button>
-        <button id="pause" type="button">Ⅱ Pause</button>
+        <button id="next" type="button">Next ▶</button>
       </div>
       <label class="speed-label" for="speed">Speed
         <select id="speed">
@@ -92,6 +96,6 @@
   <script src="js/board.js"></script>
   <script src="js/animation.js"></script>
   <script src="js/controls.js"></script>
-  <script src="js/solution.js?v=47"></script>
+  <script src="js/solution.js?v=49"></script>
 </body>
 </html>
