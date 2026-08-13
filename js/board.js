@@ -22,6 +22,31 @@
     foundations.replaceChildren(); ns.suitOrder.forEach(suit=>{ const slot=document.createElement("div"); slot.className="slot foundation-slot"+(state.foundations[suit]?"":" empty"); slot.dataset.symbol=ns.suitSymbols[suit]; slot.dataset.location="foundation-"+suit; if(state.foundations[suit]) slot.appendChild(ns.cardElement(state.foundations[suit])); foundations.appendChild(slot); });
     freecells.replaceChildren(); state.freecells.forEach((card,i)=>{ const slot=document.createElement("div"); slot.className="slot freecell-slot"+(card?"":" empty"); slot.dataset.symbol="⚜"; slot.dataset.location="freecell-"+i; if(card) slot.appendChild(ns.cardElement(card)); freecells.appendChild(slot); });
     tableau.replaceChildren(); state.tableau.forEach((column,i)=>{ const col=document.createElement("div"); col.className="column"; col.dataset.location="stack-"+i; const cards=document.createElement("div"); cards.className="cards"; column.forEach((card,j)=>{ const el=ns.cardElement(card); el.style.top="calc("+j+" * var(--overlap))"; el.style.zIndex=String(j+1); cards.appendChild(el); }); col.append(cards); tableau.appendChild(col); });
+    ns.fitTableauToCards();
+  };
+
+  // v51: size the green tableau to the cards that are actually on screen.
+  // This removes the large fixed empty area that could push playback controls below the iPhone viewport.
+  ns.fitTableauToCards = function () {
+    const tableauArea = document.querySelector('.solution-page .tableau-area');
+    const columns = Array.from(document.querySelectorAll('.solution-page .cards'));
+    if (!tableauArea || !columns.length) return;
+    requestAnimationFrame(() => {
+      let tallest = 0;
+      columns.forEach(cards => {
+        const cardEls = Array.from(cards.querySelectorAll('.card'));
+        let needed = 0;
+        if (cardEls.length) {
+          const last = cardEls[cardEls.length - 1];
+          needed = last.offsetTop + last.offsetHeight;
+        }
+        // Keep an empty column visible without forcing a tall board.
+        needed = Math.max(needed, 74);
+        cards.style.setProperty('--tableau-column-height', Math.ceil(needed) + 'px');
+        tallest = Math.max(tallest, needed);
+      });
+      tableauArea.style.minHeight = Math.ceil(tallest + 20) + 'px';
+    });
   };
 
   ns.showMoveAftermath = function (details, beforeState) {
@@ -58,6 +83,10 @@
       }
     }
   };
+  if (!ns.v51TableauResizeBound) {
+    ns.v51TableauResizeBound = true;
+    window.addEventListener('resize', () => ns.fitTableauToCards && ns.fitTableauToCards(), { passive:true });
+  }
   const spokenRanks = { A:"ace", J:"jack", Q:"queen", K:"king", T:"10" };
   const spokenSuits = { S:"spade", H:"heart", D:"diamond", C:"clover" };
   function cardWords(card) {
