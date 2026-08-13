@@ -735,7 +735,7 @@
       announce("Correct the highlighted cards until the deck is valid.", "error");
       return;
     }
-    tryLoadRecognizedBoardIntoExistingInput(recognizedBoard, { solve: true });
+    tryLoadRecognizedBoardIntoExistingInput(recognizedBoard, { solve: false });
   }
 
   function clearRecognitionLibrary() {
@@ -1966,10 +1966,17 @@
       );
       announce(
         perfect
-          ? "The fixed tableau template is aligned and all 52 card regions are known."
+          ? "Board detected. Recognizing all 52 cards…"
           : "The template fit is visible, but confirmation remains disabled until every check passes.",
         perfect ? "success" : ""
       );
+
+      // v50 streamlined workflow: a successful scan immediately runs recognition.
+      // If the recognized deck validates, it is loaded into the normal board input
+      // area without starting the solver. The user can then choose Solve or Compare.
+      if (perfect) {
+        window.setTimeout(() => showDetails({ autoImport: true }), 20);
+      }
     } catch (error) {
       console.error(error);
       clearDetection();
@@ -2495,7 +2502,8 @@
     return canvas;
   }
 
-  function showDetails() {
+  function showDetails(options) {
+    const settings = Object.assign({ autoImport: false }, options || {});
     if (!detection) {
       announce("Detect the board first.", "error");
       return;
@@ -2637,13 +2645,30 @@
     });
 
     detection.recognitionRegions = recognitionRegions;
-    detailsPanel.hidden = false;
+    // The detailed 52-ROI trainer remains available for diagnostics, but it is
+    // intentionally kept collapsed/hidden during the normal scan workflow.
+    detailsPanel.hidden = settings.autoImport;
     updateRecognitionLibrarySummary();
     refreshAllPredictions();
-    detailsPanel.scrollIntoView({ behavior: "smooth", block: "start" });
     buildRecognizedBoardFromCards();
     renderRecognizedBoard();
-    announce("Recognition complete. Review the validated 52-card board below.", "success");
+
+    boardValidation = validateRecognizedBoard(recognizedBoard);
+    if (settings.autoImport && boardValidation.valid) {
+      tryLoadRecognizedBoardIntoExistingInput(recognizedBoard, { solve: false });
+      announce("52 cards recognized and loaded into Board Input. Choose Solve or Compare Solver Modes.", "success");
+      return;
+    }
+
+    if (!settings.autoImport && !detailsPanel.hidden) {
+      detailsPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    if (settings.autoImport) {
+      announce("Recognition needs review. Correct the highlighted cards below; diagnostics stay collapsed unless you open them.", "error");
+      byId("scan-recognized-board-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      announce("Recognition complete. Review the validated 52-card board below.", "success");
+    }
   }
 
   function confirmShape() {

@@ -244,7 +244,7 @@
       pushHistory();
       columns = imported.map(column => column.slice());
       active = { column: 7, row: 5 };
-      announce("Scanned board loaded into manual entry.", "success");
+      announce("Scanned board loaded. Choose Solve This Board or Compare Solver Modes.", "success");
       renderAll();
 
       if (settings.closeScanner) {
