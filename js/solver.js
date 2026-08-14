@@ -189,6 +189,7 @@ define([
         startingMoves: Number(result.startingMoves || incumbent.moveStrings.length),
         foundationShortcuts: Number(result.foundationShortcuts || 0),
         foundationCascades: Number(result.foundationCascades || 0),
+        globalFoundationCascades: Number(result.globalFoundationCascades || 0),
         cascadeSeeds: Number(result.cascadeSeeds || 0),
         reason: result.reason || ""
       };
@@ -291,6 +292,7 @@ define([
           elapsedMs: Number(outcome.elapsedMs || 0),
           foundationShortcuts: Number(outcome.foundationShortcuts || 0),
           foundationCascades: Number(outcome.foundationCascades || 0),
+          globalFoundationCascades: Number(outcome.globalFoundationCascades || 0),
           cascadeSeeds: Number(outcome.cascadeSeeds || 0),
           reason: outcome.reason || ""
         } : null,

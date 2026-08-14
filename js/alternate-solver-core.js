@@ -402,10 +402,44 @@
         const nextRank=rank(triggerCard)+1;
         if (nextRank>13) continue;
         const stateAfter=trajectory.states[i+1];
-        // Only promote the immediate next card of the SAME suit. This makes the
-        // transformation monotonic and prevents harmless foundation-order swaps
-        // from bouncing back and forth across passes.
         const ready=foundationReadyMoves(stateAfter).filter(item=>suit(item.card)===suit(triggerCard) && rank(item.card)===nextRank);
+        for (const item of ready) {
+          let later=-1;
+          for (let j=i+1;j<current.length;j++) {
+            if (isFoundationMoveOfCard(trajectory.states[j],current[j],item.card)) { later=j; break; }
+          }
+          if (later<0 || later===i+1) continue;
+          const candidate=current.slice();
+          candidate.splice(later,1);
+          candidate.splice(i+1,0,item.move);
+          const checked=replay(boardText,candidate);
+          if (checked.valid) { current=candidate; reorders++; passes++; changed=true; break; }
+        }
+        if (changed) break;
+      }
+      if (!changed) break;
+    }
+    return {validated:replay(boardText,current).valid,moveStrings:current,savedMoves:moves.length-current.length,reorders,passes};
+  }
+
+  function applyGlobalFoundationCascades(boardText,moves,maxPasses) {
+    let current=moves.map(normalizeMoveText);
+    let reorders=0, passes=0;
+    const limit=Math.max(1,Number(maxPasses||24));
+    while (passes<limit) {
+      const trajectory=buildTrajectory(boardText,current);
+      if (!trajectory.valid) return {validated:false,moveStrings:current,savedMoves:0,reorders,passes};
+      let changed=false;
+      for (let i=0;i<current.length;i++) {
+        if (!/to the foundations$/i.test(current[i])) continue;
+        const triggerCard=movedCardAtState(trajectory.states[i],current[i]);
+        if (!triggerCard) continue;
+        const stateAfter=trajectory.states[i+1];
+        // v61: after ANY foundation move, consider every exposed/free-cell card
+        // that is now legally foundation-ready, regardless of suit. Moving the
+        // card earlier is accepted only when replaying the entire solution still
+        // validates, so unrelated foundation order can improve mobility safely.
+        const ready=foundationReadyMoves(stateAfter);
         for (const item of ready) {
           let later=-1;
           for (let j=i+1;j<current.length;j++) {
@@ -595,21 +629,35 @@
     const initialLength=Array.isArray(incumbentMoves)?incumbentMoves.length:0;
     const foundationFirst=applyFoundationShortcuts(boardText,incumbentMoves,opts.maxPasses);
     if (!foundationFirst.validated) throw new Error('Foundation shortcut pass produced an invalid solution.');
+    // Preserve the proven v60 same-suit cascade as the baseline so v61 cannot
+    // lose a good result merely because broader promotions reorder the path.
     const cascadeFirst=applyFoundationCascades(boardText,foundationFirst.moveStrings,Math.max(opts.maxPasses,24));
     if (!cascadeFirst.validated) throw new Error('Foundation cascade pass produced an invalid solution.');
     const first=simplifySolution(boardText,cascadeFirst.moveStrings,{maxPasses:opts.maxPasses,maxBridgeDepth:opts.maxBridgeDepth});
     if (!first.validated) throw new Error('Cannot optimize an invalid solution.');
-    const seedPaths=buildCascadeSeeds(boardText,first.moveStrings,8);
-    if (onProgress) onProgress({stage:'simplified',startingMoves:initialLength,bestMoves:first.moveStrings.length,savedMoves:initialLength-first.moveStrings.length,foundationShortcuts:foundationFirst.savedMoves,foundationCascades:cascadeFirst.reorders,cascadeSeeds:seedPaths.length,expanded:0,frontier:0});
 
-    const searched=await search(boardText,{mode:'best',maxExpanded:opts.maxExpanded,maxMs:opts.maxMs,yieldEvery:opts.yieldEvery,continueAfterFirst:true,incumbentMoves:first.moveStrings,seedPaths},onProgress);
-    let candidate=searched.solved ? searched.moveStrings : first.moveStrings;
+    // v61 global cascade is an additional branch, not a replacement for v60.
+    const globalFirst=applyGlobalFoundationCascades(boardText,first.moveStrings,48);
+    const globalSimplified=globalFirst.validated ? simplifySolution(boardText,globalFirst.moveStrings,{maxPasses:opts.maxPasses,maxBridgeDepth:opts.maxBridgeDepth}) : null;
+    let incumbent=first.moveStrings;
+    if (globalSimplified && globalSimplified.validated && globalSimplified.moveStrings.length<incumbent.length) incumbent=globalSimplified.moveStrings;
+    const seedPaths=buildCascadeSeeds(boardText,first.moveStrings,8);
+    if (globalFirst.validated) seedPaths.push(...buildCascadeSeeds(boardText,globalFirst.moveStrings,8));
+    if (onProgress) onProgress({stage:'simplified',startingMoves:initialLength,bestMoves:incumbent.length,savedMoves:initialLength-incumbent.length,foundationShortcuts:foundationFirst.savedMoves,foundationCascades:cascadeFirst.reorders,globalFoundationCascades:globalFirst.reorders||0,cascadeSeeds:seedPaths.length,expanded:0,frontier:0});
+
+    const searched=await search(boardText,{mode:'best',maxExpanded:opts.maxExpanded,maxMs:opts.maxMs,yieldEvery:opts.yieldEvery,continueAfterFirst:true,incumbentMoves:incumbent,seedPaths},onProgress);
+    let candidate=searched.solved ? searched.moveStrings : incumbent;
     const foundationSecond=applyFoundationShortcuts(boardText,candidate,opts.maxPasses);
-    if (foundationSecond.validated) candidate=foundationSecond.moveStrings;
+    if (foundationSecond.validated && foundationSecond.moveStrings.length<=candidate.length) candidate=foundationSecond.moveStrings;
     const cascadeSecond=applyFoundationCascades(boardText,candidate,Math.max(opts.maxPasses,24));
     if (cascadeSecond.validated) candidate=cascadeSecond.moveStrings;
     const second=simplifySolution(boardText,candidate,{maxPasses:opts.maxPasses,maxBridgeDepth:opts.maxBridgeDepth});
-    if (second.validated) candidate=second.moveStrings;
+    if (second.validated && second.moveStrings.length<=candidate.length) candidate=second.moveStrings;
+    const globalSecond=applyGlobalFoundationCascades(boardText,candidate,48);
+    if (globalSecond.validated) {
+      const gs=simplifySolution(boardText,globalSecond.moveStrings,{maxPasses:opts.maxPasses,maxBridgeDepth:opts.maxBridgeDepth});
+      if (gs.validated && gs.moveStrings.length<candidate.length) candidate=gs.moveStrings;
+    }
     const checked=replay(boardText,candidate);
     return {
       solved:checked.valid,
@@ -620,6 +668,7 @@
       simplifiedMoves:first.moveStrings.length,
       foundationShortcuts:Number(foundationFirst.savedMoves||0)+Number(foundationSecond && foundationSecond.savedMoves||0),
       foundationCascades:Number(cascadeFirst.reorders||0)+Number(cascadeSecond && cascadeSecond.reorders||0),
+      globalFoundationCascades:Number(globalFirst.reorders||0)+Number(globalSecond && globalSecond.reorders||0),
       cascadeSeeds:seedPaths.length,
       savedMoves:initialLength-candidate.length,
       expanded:Number(searched.expanded||0),
@@ -629,5 +678,5 @@
     };
   }
 
-  return Object.freeze({parseBoard,solve,replay,improve,simplifySolution,applyFoundationShortcuts,applyFoundationCascades,buildCascadeSeeds});
+  return Object.freeze({parseBoard,solve,replay,improve,simplifySolution,applyFoundationShortcuts,applyFoundationCascades,applyGlobalFoundationCascades,buildCascadeSeeds});
 }));

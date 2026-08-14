@@ -460,6 +460,7 @@
       lines.push("Optimizer iterations: " + Number(optimizer.iterations || 0).toLocaleString("en-US"));
       lines.push("Optimizer time: " + formatLogTime(optimizer.elapsedMs));
       if (Number(optimizer.foundationCascades || 0)) lines.push("Foundation cascade promotions: " + Number(optimizer.foundationCascades || 0));
+      if (Number(optimizer.globalFoundationCascades || 0)) lines.push("Global foundation cascade promotions tested: " + Number(optimizer.globalFoundationCascades || 0));
       if (Number(optimizer.cascadeSeeds || 0)) lines.push("Mobility cascade seed branches: " + Number(optimizer.cascadeSeeds || 0));
     }
     lines.push("Final solution: " + finalMoves.length + " moves" + (finalInfo && finalInfo.name ? " (" + finalInfo.name + ")" : ""));

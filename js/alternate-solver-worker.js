@@ -1,5 +1,5 @@
 'use strict';
-importScripts('alternate-solver-core.js?v=60');
+importScripts('alternate-solver-core.js?v=61');
 
 self.onmessage = async function (event) {
   const data = event.data || {};

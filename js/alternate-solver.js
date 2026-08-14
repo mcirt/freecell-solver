@@ -6,7 +6,7 @@
 
   function ensureWorker() {
     if (worker) return worker;
-    worker = new Worker('js/alternate-solver-worker.js?v=60');
+    worker = new Worker('js/alternate-solver-worker.js?v=61');
     worker.onmessage = function (event) {
       const data = event.data || {};
       const job = pending.get(data.id);
