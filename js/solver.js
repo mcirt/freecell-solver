@@ -173,7 +173,7 @@ define([
         if (!statusCallback) return;
         const best = progress.bestMoves ? progress.bestMoves + " moves" : "searching";
         const expanded = Number(progress.expanded || 0).toLocaleString();
-        const stage = progress.stage === "simplified" ? "foundation + shortcut cleanup" : "bounded Best-First";
+        const stage = progress.stage === "simplified" ? "foundation cascade + shortcut cleanup" : "bounded Best-First";
         statusCallback("searching", `${stage}: ${best}; expanded ${expanded} states`);
       });
       const moveStrings = Array.isArray(result.moveStrings) ? result.moveStrings : incumbent.moveStrings.slice();
@@ -187,6 +187,9 @@ define([
         moveStrings,
         savedMoves: Number(result.savedMoves || 0),
         startingMoves: Number(result.startingMoves || incumbent.moveStrings.length),
+        foundationShortcuts: Number(result.foundationShortcuts || 0),
+        foundationCascades: Number(result.foundationCascades || 0),
+        cascadeSeeds: Number(result.cascadeSeeds || 0),
         reason: result.reason || ""
       };
     } catch (error) {
@@ -286,6 +289,9 @@ define([
           savedMoves: Math.max(0, raceWinner.moveStrings.length - outcome.moveStrings.length),
           iterations: Number(outcome.iterations || 0),
           elapsedMs: Number(outcome.elapsedMs || 0),
+          foundationShortcuts: Number(outcome.foundationShortcuts || 0),
+          foundationCascades: Number(outcome.foundationCascades || 0),
+          cascadeSeeds: Number(outcome.cascadeSeeds || 0),
           reason: outcome.reason || ""
         } : null,
         methods: result.outcomes.map(item => outcomeSummary(item))

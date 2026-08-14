@@ -339,6 +339,22 @@
     return movedCardAtState(state,text) === card;
   }
 
+  function foundationReadyMoves(state) {
+    const out=[];
+    // Free cells first: clearing one immediately increases maneuvering capacity.
+    for (let f=0;f<4;f++) {
+      const card=state.freecells[f];
+      if (card && foundationLegal(state,card)) out.push({card,move:'Move a card from freecell '+f+' to the foundations',fromFreecell:true});
+    }
+    for (let i=0;i<8;i++) {
+      const col=state.tableau[i];
+      if (!col || !col.length) continue;
+      const card=col[col.length-1];
+      if (foundationLegal(state,card)) out.push({card,move:'Move a card from stack '+i+' to the foundations',fromFreecell:false});
+    }
+    return out;
+  }
+
   function applyFoundationShortcuts(boardText,moves,maxPasses) {
     let current=moves.map(normalizeMoveText);
     let saved=0, passes=0;
@@ -371,6 +387,102 @@
     return {validated:replay(boardText,current).valid,moveStrings:current,savedMoves:saved,passes};
   }
 
+  function applyFoundationCascades(boardText,moves,maxPasses) {
+    let current=moves.map(normalizeMoveText);
+    let reorders=0, passes=0;
+    const limit=Math.max(1,Number(maxPasses||24));
+    while (passes<limit) {
+      const trajectory=buildTrajectory(boardText,current);
+      if (!trajectory.valid) return {validated:false,moveStrings:current,savedMoves:0,reorders,passes};
+      let changed=false;
+      for (let i=0;i<current.length;i++) {
+        if (!/to the foundations$/i.test(current[i])) continue;
+        const triggerCard=movedCardAtState(trajectory.states[i],current[i]);
+        if (!triggerCard) continue;
+        const nextRank=rank(triggerCard)+1;
+        if (nextRank>13) continue;
+        const stateAfter=trajectory.states[i+1];
+        // Only promote the immediate next card of the SAME suit. This makes the
+        // transformation monotonic and prevents harmless foundation-order swaps
+        // from bouncing back and forth across passes.
+        const ready=foundationReadyMoves(stateAfter).filter(item=>suit(item.card)===suit(triggerCard) && rank(item.card)===nextRank);
+        for (const item of ready) {
+          let later=-1;
+          for (let j=i+1;j<current.length;j++) {
+            if (isFoundationMoveOfCard(trajectory.states[j],current[j],item.card)) { later=j; break; }
+          }
+          if (later<0 || later===i+1) continue;
+          const candidate=current.slice();
+          candidate.splice(later,1);
+          candidate.splice(i+1,0,item.move);
+          const checked=replay(boardText,candidate);
+          if (checked.valid) {
+            current=candidate;
+            reorders++;
+            passes++;
+            changed=true;
+            break;
+          }
+        }
+        if (changed) break;
+      }
+      if (!changed) break;
+    }
+    return {validated:replay(boardText,current).valid,moveStrings:current,savedMoves:moves.length-current.length,reorders,passes};
+  }
+
+  function appendImmediateFoundationChain(state,moves,maxAdds) {
+    let current=state;
+    const out=moves.slice();
+    for (let k=0;k<Math.max(0,Number(maxAdds||3));k++) {
+      const ready=foundationReadyMoves(current);
+      if (!ready.length) break;
+      // Prefer a tableau top because it exposes another card; otherwise free a cell.
+      ready.sort((a,b)=>(a.fromFreecell?1:0)-(b.fromFreecell?1:0));
+      const chosen=ready[0];
+      try { current=applyMoveText(current,chosen.move); out.push(chosen.move); }
+      catch (_) { break; }
+    }
+    return {state:current,moves:out};
+  }
+
+  function buildCascadeSeeds(boardText,moves,maxSeeds) {
+    const trajectory=buildTrajectory(boardText,moves);
+    if (!trajectory.valid) return [];
+    const seeds=[];
+    const limit=Math.max(1,Number(maxSeeds||8));
+    for (let i=1;i<trajectory.states.length-1;i++) {
+      if (!/^Move a card from freecell \d+ to the foundations$/i.test(trajectory.moves[i-1])) continue;
+      const state=trajectory.states[i];
+      const candidates=generateMoves(state,true).filter(item=>{
+        const m=item.move.match(/^Move (\d+) cards? from stack (\d+) to stack (\d+)$/i);
+        if (!m || Number(m[1])<2) return false;
+        const src=Number(m[2]);
+        const top=item.state.tableau[src][item.state.tableau[src].length-1]||null;
+        return top && foundationLegal(item.state,top);
+      });
+      candidates.sort((a,b)=>{
+        const ca=Number((a.move.match(/^Move (\d+) cards/)||[])[1]||1);
+        const cb=Number((b.move.match(/^Move (\d+) cards/)||[])[1]||1);
+        return cb-ca || a.orderBias-b.orderBias;
+      });
+      for (const child of candidates.slice(0,3)) {
+        if (trajectory.moves[i]===child.move) continue;
+        let stateAfter=child.state;
+        let prefix=trajectory.moves.slice(0,i).concat([child.move]);
+        const chained=appendImmediateFoundationChain(stateAfter,prefix,3);
+        prefix=chained.moves;
+        try {
+          let test=parseBoard(boardText);
+          for (const mv of prefix) test=applyMoveText(test,mv);
+          seeds.push(prefix);
+        } catch (_) {}
+        if (seeds.length>=limit) return seeds;
+      }
+    }
+    return seeds;
+  }
+
   function simplifySolution(boardText,moves,options) {
     const opts=Object.assign({maxPasses:16,maxBridgeDepth:2},options||{});
     let trajectory=buildTrajectory(boardText,moves);
@@ -391,7 +503,7 @@
   }
 
   async function search(boardText, options, onProgress) {
-    const opts=Object.assign({mode:'best',maxExpanded:131072,maxMs:15000,yieldEvery:350,continueAfterFirst:false,incumbentMoves:null},options||{});
+    const opts=Object.assign({mode:'best',maxExpanded:131072,maxMs:15000,yieldEvery:350,continueAfterFirst:false,incumbentMoves:null,seedPaths:null},options||{});
     const started=Date.now();
     const initial=parseBoard(boardText);
     const heap=new MinHeap();
@@ -406,6 +518,30 @@
       if (checked.valid) bestMoves=opts.incumbentMoves.map(normalizeMoveText);
     }
     let bestLength=bestMoves ? bestMoves.length : Infinity;
+
+    // Human-inspired seed branches: start the search immediately from promising
+    // mobility cascades instead of waiting for Best-First to rediscover them.
+    if (Array.isArray(opts.seedPaths)) {
+      for (const rawSeed of opts.seedPaths) {
+        if (!Array.isArray(rawSeed) || !rawSeed.length || rawSeed.length>=bestLength) continue;
+        let parent=root, state=initial, g=0, ok=true;
+        try {
+          for (const rawMove of rawSeed) {
+            const move=normalizeMoveText(rawMove);
+            state=applyMoveText(state,move); g++;
+            parent={state,g,parent,move};
+          }
+        } catch (_) { ok=false; }
+        if (!ok) continue;
+        const remaining=52-foundationCount(state);
+        if (g+remaining>=bestLength) continue;
+        const key=canonicalKey(state);
+        const old=visited.get(key);
+        if (old!==undefined && old<=g) continue;
+        visited.set(key,g);
+        heap.push(parent,heuristic(state,opts.mode)-75);
+      }
+    }
 
     while (heap.size && expanded<opts.maxExpanded && (Date.now()-started)<opts.maxMs) {
       const node=heap.pop();
@@ -459,14 +595,19 @@
     const initialLength=Array.isArray(incumbentMoves)?incumbentMoves.length:0;
     const foundationFirst=applyFoundationShortcuts(boardText,incumbentMoves,opts.maxPasses);
     if (!foundationFirst.validated) throw new Error('Foundation shortcut pass produced an invalid solution.');
-    const first=simplifySolution(boardText,foundationFirst.moveStrings,{maxPasses:opts.maxPasses,maxBridgeDepth:opts.maxBridgeDepth});
+    const cascadeFirst=applyFoundationCascades(boardText,foundationFirst.moveStrings,Math.max(opts.maxPasses,24));
+    if (!cascadeFirst.validated) throw new Error('Foundation cascade pass produced an invalid solution.');
+    const first=simplifySolution(boardText,cascadeFirst.moveStrings,{maxPasses:opts.maxPasses,maxBridgeDepth:opts.maxBridgeDepth});
     if (!first.validated) throw new Error('Cannot optimize an invalid solution.');
-    if (onProgress) onProgress({stage:'simplified',startingMoves:initialLength,bestMoves:first.moveStrings.length,savedMoves:initialLength-first.moveStrings.length,foundationShortcuts:foundationFirst.savedMoves,expanded:0,frontier:0});
+    const seedPaths=buildCascadeSeeds(boardText,first.moveStrings,8);
+    if (onProgress) onProgress({stage:'simplified',startingMoves:initialLength,bestMoves:first.moveStrings.length,savedMoves:initialLength-first.moveStrings.length,foundationShortcuts:foundationFirst.savedMoves,foundationCascades:cascadeFirst.reorders,cascadeSeeds:seedPaths.length,expanded:0,frontier:0});
 
-    const searched=await search(boardText,{mode:'best',maxExpanded:opts.maxExpanded,maxMs:opts.maxMs,yieldEvery:opts.yieldEvery,continueAfterFirst:true,incumbentMoves:first.moveStrings},onProgress);
+    const searched=await search(boardText,{mode:'best',maxExpanded:opts.maxExpanded,maxMs:opts.maxMs,yieldEvery:opts.yieldEvery,continueAfterFirst:true,incumbentMoves:first.moveStrings,seedPaths},onProgress);
     let candidate=searched.solved ? searched.moveStrings : first.moveStrings;
     const foundationSecond=applyFoundationShortcuts(boardText,candidate,opts.maxPasses);
     if (foundationSecond.validated) candidate=foundationSecond.moveStrings;
+    const cascadeSecond=applyFoundationCascades(boardText,candidate,Math.max(opts.maxPasses,24));
+    if (cascadeSecond.validated) candidate=cascadeSecond.moveStrings;
     const second=simplifySolution(boardText,candidate,{maxPasses:opts.maxPasses,maxBridgeDepth:opts.maxBridgeDepth});
     if (second.validated) candidate=second.moveStrings;
     const checked=replay(boardText,candidate);
@@ -478,6 +619,8 @@
       startingMoves:initialLength,
       simplifiedMoves:first.moveStrings.length,
       foundationShortcuts:Number(foundationFirst.savedMoves||0)+Number(foundationSecond && foundationSecond.savedMoves||0),
+      foundationCascades:Number(cascadeFirst.reorders||0)+Number(cascadeSecond && cascadeSecond.reorders||0),
+      cascadeSeeds:seedPaths.length,
       savedMoves:initialLength-candidate.length,
       expanded:Number(searched.expanded||0),
       generated:Number(searched.generated||0),
@@ -486,5 +629,5 @@
     };
   }
 
-  return Object.freeze({parseBoard,solve,replay,improve,simplifySolution,applyFoundationShortcuts});
+  return Object.freeze({parseBoard,solve,replay,improve,simplifySolution,applyFoundationShortcuts,applyFoundationCascades,buildCascadeSeeds});
 }));
