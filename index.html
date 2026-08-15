@@ -158,6 +158,12 @@
 
       <div id="scan-picker-panel" class="scan-picker-panel">
         <div class="scan-mode-picker streamlined-picker">
+          <label for="scan-layout-profile">Screenshot layout
+            <select id="scan-layout-profile">
+              <option value="iphone">iPhone — existing scanner</option>
+              <option value="chromebook">Chromebook — full browser screenshot</option>
+            </select>
+          </label>
           <label for="board-picture-input" class="scan-native-picker-label">Choose Screenshot or Photo</label>
           <input id="board-picture-input" class="scan-native-picker" type="file" accept="image/*,.heic,.heif" aria-label="Choose a FreeCell screenshot or photo">
           <p class="scan-picker-note">Choose one screenshot or photo of the complete 8-column FreeCell board. A valid 52-card recognition will be loaded directly into the board input area.</p>
@@ -312,7 +318,7 @@
   <script src="js/input.js?v=56"></script>
   <script src="data/recognition-library-v36.js?v=36"></script>
   <script src="js/photo-pipeline.js?v=41"></script>
-  <script src="js/scan.js?v=50"></script>
+  <script src="js/scan.js?v=62"></script>
   <script src="js/alternate-solver.js?v=61"></script>
   <script>
     var require = { baseUrl: "js", urlArgs: "v=56" };
