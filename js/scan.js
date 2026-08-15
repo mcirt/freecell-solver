@@ -64,7 +64,7 @@
   const SESSION_KEY = "freecellPendingScanV23";
   const LOCAL_RECOGNITION_LIBRARY_KEY = "freecellRecognitionAdditionsV36";
   const BUILTIN_RECOGNITION_LIBRARY_VERSION = 36;
-  const CHROMEBOOK_RECOGNITION_LIBRARY_VERSION = 64;
+  const CHROMEBOOK_RECOGNITION_LIBRARY_VERSION = 65;
   const MAX_LOCAL_TEMPLATES_PER_SYMBOL = 3;
   const MIN_TEMPLATE_CONFIDENCE = 0.72;
   const RANK_LABELS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
@@ -88,6 +88,7 @@
       maxTopRatio: 0.68,
       topCorrectionPx: -5,
       rowStepCorrectionPx: -1,
+      laneMinimumThreshold: 0.36,
       uniqueMarginThreshold: 0.16,
       uniqueScoreThreshold: 8.0
     }),
@@ -104,7 +105,8 @@
       minTopRatio: 0.32,
       maxTopRatio: 0.62,
       topCorrectionPx: 0,
-      rowStepCorrectionPx: 0,
+      rowStepCorrectionPx: -1,
+      laneMinimumThreshold: 0.30,
       uniqueMarginThreshold: 0.12,
       uniqueScoreThreshold: 7.6
     })
@@ -1908,7 +1910,7 @@
       const checks = {
         templateFound: true,
         surfaceOverlap: m.laneMean >= 0.52,
-        laneMinimum: m.laneMin >= 0.36,
+        laneMinimum: m.laneMin >= activeTemplate.laneMinimumThreshold,
         darkColumnGaps: m.gapMean <= 0.52,
         sharedTop: m.topInside >= 0.48 && m.topContrast >= 0.10,
         steppedBottom: m.bottomDarkness >= 0.58,
@@ -1956,7 +1958,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "dual-layout-tableau-template-v64",
+          detector: "dual-layout-tableau-template-v65",
           layoutProfile: activeTemplate.id,
           templateRatios: activeTemplate,
           tableauTopCorrectionPx: activeTemplate.topCorrectionPx,
