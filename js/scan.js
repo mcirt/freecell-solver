@@ -64,6 +64,7 @@
   const SESSION_KEY = "freecellPendingScanV23";
   const LOCAL_RECOGNITION_LIBRARY_KEY = "freecellRecognitionAdditionsV36";
   const BUILTIN_RECOGNITION_LIBRARY_VERSION = 36;
+  const CHROMEBOOK_RECOGNITION_LIBRARY_VERSION = 63;
   const MAX_LOCAL_TEMPLATES_PER_SYMBOL = 3;
   const MIN_TEMPLATE_CONFIDENCE = 0.72;
   const RANK_LABELS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
@@ -123,7 +124,7 @@
   let detection = null;
   let cvReady = false;
   let debugFrames = {};
-  let builtInRecognitionLibrary = loadBuiltInRecognitionLibrary();
+  let builtInRecognitionLibrary = loadBuiltInRecognitionLibrary("iphone");
   let localRecognitionLibrary = loadLocalRecognitionLibrary();
   let recognitionLibrary = mergeRecognitionLibraries(builtInRecognitionLibrary, localRecognitionLibrary);
   let recognitionCards = [];
@@ -142,28 +143,40 @@
     return result;
   }
 
-  function emptyRecognitionLibrary() {
-    return { version: BUILTIN_RECOGNITION_LIBRARY_VERSION, ranks: {}, suits: {} };
+  function emptyRecognitionLibrary(version = BUILTIN_RECOGNITION_LIBRARY_VERSION) {
+    return { version, ranks: {}, suits: {} };
   }
 
-  function loadBuiltInRecognitionLibrary() {
+  function loadBuiltInRecognitionLibrary(profileId = "iphone") {
     try {
-      const raw = window.FREECELL_BUILTIN_RECOGNITION_LIBRARY;
+      const chromebook = profileId === "chromebook";
+      const raw = chromebook
+        ? window.FREECELL_CHROMEBOOK_RECOGNITION_LIBRARY
+        : window.FREECELL_BUILTIN_RECOGNITION_LIBRARY;
+      const expectedVersion = chromebook
+        ? CHROMEBOOK_RECOGNITION_LIBRARY_VERSION
+        : BUILTIN_RECOGNITION_LIBRARY_VERSION;
       if (!raw || raw.format !== "freecell-recognition-template-library") {
-        throw new Error("Built-in recognition library was not loaded.");
+        throw new Error(`Built-in ${profileId} recognition library was not loaded.`);
       }
-      if (Number(raw.version) !== BUILTIN_RECOGNITION_LIBRARY_VERSION) {
-        throw new Error(`Built-in recognition library v${raw.version || "?"} is incompatible with v${BUILTIN_RECOGNITION_LIBRARY_VERSION}.`);
+      if (Number(raw.version) !== expectedVersion) {
+        throw new Error(`Built-in ${profileId} recognition library v${raw.version || "?"} is incompatible with v${expectedVersion}.`);
       }
       return {
-        version: BUILTIN_RECOGNITION_LIBRARY_VERSION,
+        version: expectedVersion,
         ranks: normalizeRecognitionGroup(raw.ranks),
         suits: normalizeRecognitionGroup(raw.suits)
       };
     } catch (error) {
       console.error(error);
-      return emptyRecognitionLibrary();
+      return emptyRecognitionLibrary(profileId === "chromebook" ? CHROMEBOOK_RECOGNITION_LIBRARY_VERSION : BUILTIN_RECOGNITION_LIBRARY_VERSION);
     }
+  }
+
+  function selectRecognitionProfile(profileId) {
+    builtInRecognitionLibrary = loadBuiltInRecognitionLibrary(profileId);
+    recognitionLibrary = mergeRecognitionLibraries(builtInRecognitionLibrary, localRecognitionLibrary);
+    updateRecognitionLibrarySummary();
   }
 
   function loadLocalRecognitionLibrary() {
@@ -196,7 +209,7 @@
 
   function mergeRecognitionLibraries(base, additions) {
     return {
-      version: BUILTIN_RECOGNITION_LIBRARY_VERSION,
+      version: base.version || BUILTIN_RECOGNITION_LIBRARY_VERSION,
       ranks: mergeRecognitionGroups(base.ranks, additions.ranks),
       suits: mergeRecognitionGroups(base.suits, additions.suits)
     };
@@ -1842,6 +1855,7 @@
     }
 
     activeTemplate = TEMPLATE_PROFILES[(layoutProfileSelect && layoutProfileSelect.value) || "iphone"] || TEMPLATE_PROFILES.iphone;
+    selectRecognitionProfile(activeTemplate.id);
     detectButton.disabled = true;
     updateCvStatus(`Fitting the ${activeTemplate.id} 8-column tableau template to the card-surface mask…`, "working");
 
@@ -1942,7 +1956,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "dual-layout-tableau-template-v62",
+          detector: "dual-layout-tableau-template-v63",
           layoutProfile: activeTemplate.id,
           templateRatios: activeTemplate,
           tableauTopCorrectionPx: activeTemplate.topCorrectionPx,
@@ -2777,6 +2791,13 @@
 
   pictureInput.addEventListener("change", handleSelection);
   pictureInput.addEventListener("input", handleSelection);
+  if (layoutProfileSelect) {
+    layoutProfileSelect.addEventListener("change", () => {
+      activeTemplate = TEMPLATE_PROFILES[layoutProfileSelect.value] || TEMPLATE_PROFILES.iphone;
+      selectRecognitionProfile(activeTemplate.id);
+      if (selectedFile) clearDetection();
+    });
+  }
   if (cameraInput) {
     cameraInput.addEventListener("change", handleCameraSelection);
     cameraInput.addEventListener("input", handleCameraSelection);
