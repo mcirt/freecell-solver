@@ -64,7 +64,7 @@
   const SESSION_KEY = "freecellPendingScanV23";
   const LOCAL_RECOGNITION_LIBRARY_KEY = "freecellRecognitionAdditionsV36";
   const BUILTIN_RECOGNITION_LIBRARY_VERSION = 36;
-  const CHROMEBOOK_RECOGNITION_LIBRARY_VERSION = 66;
+  const CHROMEBOOK_RECOGNITION_LIBRARY_VERSION = 68;
   const MAX_LOCAL_TEMPLATES_PER_SYMBOL = 3;
   const MIN_TEMPLATE_CONFIDENCE = 0.72;
   const RANK_LABELS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
@@ -1958,7 +1958,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "dual-layout-tableau-template-v66",
+          detector: "dual-layout-tableau-template-v68",
           layoutProfile: activeTemplate.id,
           templateRatios: activeTemplate,
           tableauTopCorrectionPx: activeTemplate.topCorrectionPx,
@@ -2272,7 +2272,20 @@
         component.minY < height * 0.62 ||
         component.height > height * 0.38;
 
-      if (sameLine && substantial && notArtwork) {
+      // On Chromebook captures, the narrow `1` in `10` can be separated from
+      // the wider `0` and score below it. Preserve a substantial component
+      // immediately to the left of the primary rank. This is deliberately
+      // directional so the small suit fragment to the right stays rejected.
+      const chromebookTenCompanion =
+        activeTemplate.id === "chromebook" &&
+        component.maxX < primary.minX &&
+        verticalOverlap >= 0.25 &&
+        gap >= -3 &&
+        gap <= width * 0.45 &&
+        areaRatio >= 0.04 &&
+        component.height >= height * 0.30;
+
+      if ((sameLine && substantial && notArtwork) || chromebookTenCompanion) {
         kept.push(component);
       }
     });
@@ -2477,7 +2490,16 @@
         const brightness = (r + g + b) / 3;
         const red = r > g * 1.28 && r > b * 1.28 && r > 105;
         const dark = brightness < 132 && Math.max(r, g, b) - Math.min(r, g, b) < 95;
-        const foreground = red || dark;
+        // The movable-card glow can create a false dark-green vertical stroke
+        // at the extreme left of a Chromebook rank ROI. Ignore only saturated
+        // green pixels in that narrow edge band; actual rank ink elsewhere is
+        // thresholded exactly as before.
+        const leftHighlightEdge =
+          activeTemplate.id === "chromebook" &&
+          x < source.width * 0.15 &&
+          g >= r + 18 &&
+          g >= b + 10;
+        const foreground = red || (dark && !leftHighlightEdge);
 
         binary[y * source.width + x] = foreground ? 1 : 0;
         if (red) redPixels += 1;
