@@ -11,6 +11,7 @@
   const detailsButton = byId("scan-preview-crops");
   const confirmButton = byId("scan-confirm-crops");
   const pictureInput = byId("board-picture-input");
+  const layoutProfileSelect = byId("scan-layout-profile");
   const cameraInput = byId("board-camera-input");
   const startCameraButton = byId("scan-start-camera");
   const cameraPanel = byId("scan-camera-panel");
@@ -71,27 +72,43 @@
   const DISPLAY_RANKS = Object.freeze({ A: "A", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9", "10": "10", J: "J", Q: "Q", K: "K" });
   const AUTO_ACCEPT_CONFIDENCE = 0.95;
   const REVIEW_CONFIDENCE = 0.85;
-  const TEMPLATE = Object.freeze({
-    columns: 8,
-    leftColumns: 4,
-    rowStepToWidth: 0.072,
-    fullCardHeightToWidth: 0.165,
-    laneWidthToPitch: 0.94,
-    cropHeightToRowStep: 0.78
+  const TEMPLATE_PROFILES = Object.freeze({
+    iphone: Object.freeze({
+      id: "iphone",
+      columns: 8,
+      leftColumns: 4,
+      rowStepToWidth: 0.072,
+      fullCardHeightToWidth: 0.165,
+      laneWidthToPitch: 0.94,
+      cropHeightToRowStep: 0.78,
+      minWidthRatio: 0.78,
+      maxWidthRatio: 0.995,
+      minTopRatio: 0.24,
+      maxTopRatio: 0.68,
+      topCorrectionPx: -5,
+      rowStepCorrectionPx: -1,
+      uniqueMarginThreshold: 0.16,
+      uniqueScoreThreshold: 8.0
+    }),
+    chromebook: Object.freeze({
+      id: "chromebook",
+      columns: 8,
+      leftColumns: 4,
+      rowStepToWidth: 0.050,
+      fullCardHeightToWidth: 0.130,
+      laneWidthToPitch: 0.80,
+      cropHeightToRowStep: 0.78,
+      minWidthRatio: 0.42,
+      maxWidthRatio: 0.56,
+      minTopRatio: 0.32,
+      maxTopRatio: 0.62,
+      topCorrectionPx: 0,
+      rowStepCorrectionPx: 0,
+      uniqueMarginThreshold: 0.12,
+      uniqueScoreThreshold: 7.6
+    })
   });
-
-  // v27 calibration correction:
-  // Move the complete fitted tableau geometry upward by five source-image pixels.
-  // All 52 card positions, recognition crops, overlays, and debug views inherit
-  // this same correction so they remain synchronized.
-  const TABLEAU_TOP_CORRECTION_PX = -5;
-
-  // v28 calibration correction:
-  // Decrease the generated exposed-row spacing by one source-image pixel.
-  // Row 1 remains anchored at the corrected tableau top, while rows farther
-  // down receive a progressively larger upward adjustment:
-  // row 2 = -1 px, row 3 = -2 px, ... row 7 = -6 px.
-  const TABLEAU_ROW_STEP_CORRECTION_PX = -1;
+  let activeTemplate = TEMPLATE_PROFILES.iphone;
 
   let selectedFile = null;
   let selectedInputMode = "screenshot";
@@ -1508,10 +1525,10 @@
   }
 
   function templateGeometry(left, top, width) {
-    const pitch = width / TEMPLATE.columns;
-    const laneWidth = pitch * TEMPLATE.laneWidthToPitch;
-    const rowStep = width * TEMPLATE.rowStepToWidth;
-    const fullCardHeight = width * TEMPLATE.fullCardHeightToWidth;
+    const pitch = width / activeTemplate.columns;
+    const laneWidth = pitch * activeTemplate.laneWidthToPitch;
+    const rowStep = width * activeTemplate.rowStepToWidth;
+    const fullCardHeight = width * activeTemplate.fullCardHeightToWidth;
     const leftHeight = 6 * rowStep + fullCardHeight;
     const rightHeight = 5 * rowStep + fullCardHeight;
     const centers = Array.from({ length: 8 }, (_, i) => left + (i + 0.5) * pitch);
@@ -1594,12 +1611,13 @@
 
     // Coarse search. The actual tableau spans most of the screenshot width,
     // but position and scale vary by phone and by screenshot cropping.
-    const minWidth = Math.round(w * 0.78);
-    const maxWidth = Math.round(w * 0.995);
+    const minWidth = Math.round(w * activeTemplate.minWidthRatio);
+    const maxWidth = Math.round(w * activeTemplate.maxWidthRatio);
     for (let width = minWidth; width <= maxWidth; width += Math.max(8, Math.round(w * 0.012))) {
       const leftMax = Math.max(0, w - width);
-      const yMin = Math.round(h * 0.24);
-      const yMax = Math.min(Math.round(h * 0.68), Math.round(h - width * 0.61));
+      const yMin = Math.round(h * activeTemplate.minTopRatio);
+      const templateHeightRatio = 6 * activeTemplate.rowStepToWidth + activeTemplate.fullCardHeightToWidth;
+      const yMax = Math.min(Math.round(h * activeTemplate.maxTopRatio), Math.round(h - width * templateHeightRatio));
       for (let left = 0; left <= leftMax; left += Math.max(4, Math.round(w * 0.008))) {
         for (let top = yMin; top <= yMax; top += Math.max(5, Math.round(h * 0.006))) {
           consider(left, top, width);
@@ -1643,7 +1661,7 @@
 
   function buildCardRegions(g) {
     const regions = [];
-    const cropH = Math.max(8, g.rowStep * TEMPLATE.cropHeightToRowStep);
+    const cropH = Math.max(8, g.rowStep * activeTemplate.cropHeightToRowStep);
     for (let col = 0; col < 8; col += 1) {
       const count = col < 4 ? 7 : 6;
       const left = g.left + col * g.pitch;
@@ -1823,8 +1841,9 @@
       return;
     }
 
+    activeTemplate = TEMPLATE_PROFILES[(layoutProfileSelect && layoutProfileSelect.value) || "iphone"] || TEMPLATE_PROFILES.iphone;
     detectButton.disabled = true;
-    updateCvStatus("Fitting the fixed 8-column tableau template to the card-surface mask…", "working");
+    updateCvStatus(`Fitting the ${activeTemplate.id} 8-column tableau template to the card-surface mask…`, "working");
 
     let src, resized, rgb, mask;
     try {
@@ -1851,7 +1870,7 @@
       // small and original geometries from the corrected top.
       const correctedSmall = templateGeometry(
         fittedGeometry.left,
-        fittedGeometry.top + TABLEAU_TOP_CORRECTION_PX * scale,
+        fittedGeometry.top + activeTemplate.topCorrectionPx * scale,
         fittedGeometry.width
       );
       const g = correctedSmall;
@@ -1864,7 +1883,7 @@
       // Keep the fitted width and full-card height, but decrease the exposed-row
       // spacing by one source-image pixel. Recalculate the stepped bottoms so the
       // cyan outline, 52 card positions, extractions, and debug views all agree.
-      original.rowStep += TABLEAU_ROW_STEP_CORRECTION_PX;
+      original.rowStep += activeTemplate.rowStepCorrectionPx;
       original.leftHeight = 6 * original.rowStep + original.fullCardHeight;
       original.rightHeight = 5 * original.rowStep + original.fullCardHeight;
       original.bottomLeft = original.top + original.leftHeight;
@@ -1879,8 +1898,8 @@
         darkColumnGaps: m.gapMean <= 0.52,
         sharedTop: m.topInside >= 0.48 && m.topContrast >= 0.10,
         steppedBottom: m.bottomDarkness >= 0.58,
-        plausibleScale: g.width / mask.cols >= 0.78 && g.width / mask.cols <= 1.0,
-        uniqueMatch: fit.margin >= 0.16 || m.score >= 8.0
+        plausibleScale: g.width / mask.cols >= activeTemplate.minWidthRatio && g.width / mask.cols <= activeTemplate.maxWidthRatio + 0.01,
+        uniqueMatch: fit.margin >= activeTemplate.uniqueMarginThreshold || m.score >= activeTemplate.uniqueScoreThreshold
       };
       const passCount = Object.values(checks).filter(Boolean).length;
 
@@ -1923,10 +1942,11 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "fixed-tableau-template-v38",
-          templateRatios: TEMPLATE,
-          tableauTopCorrectionPx: TABLEAU_TOP_CORRECTION_PX,
-          tableauRowStepCorrectionPx: TABLEAU_ROW_STEP_CORRECTION_PX,
+          detector: "dual-layout-tableau-template-v62",
+          layoutProfile: activeTemplate.id,
+          templateRatios: activeTemplate,
+          tableauTopCorrectionPx: activeTemplate.topCorrectionPx,
+          tableauRowStepCorrectionPx: activeTemplate.rowStepCorrectionPx,
           x: Math.round(original.left),
           y: Math.round(original.top),
           width: Math.round(original.width),
