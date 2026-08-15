@@ -64,7 +64,7 @@
   const SESSION_KEY = "freecellPendingScanV23";
   const LOCAL_RECOGNITION_LIBRARY_KEY = "freecellRecognitionAdditionsV36";
   const BUILTIN_RECOGNITION_LIBRARY_VERSION = 36;
-  const CHROMEBOOK_RECOGNITION_LIBRARY_VERSION = 65;
+  const CHROMEBOOK_RECOGNITION_LIBRARY_VERSION = 66;
   const MAX_LOCAL_TEMPLATES_PER_SYMBOL = 3;
   const MIN_TEMPLATE_CONFIDENCE = 0.72;
   const RANK_LABELS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
@@ -1958,7 +1958,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "dual-layout-tableau-template-v65",
+          detector: "dual-layout-tableau-template-v66",
           layoutProfile: activeTemplate.id,
           templateRatios: activeTemplate,
           tableauTopCorrectionPx: activeTemplate.topCorrectionPx,
@@ -2186,7 +2186,10 @@
     const largestArea = Math.max(...components.map((component) => component.area));
 
     const candidates = components.filter((component) => {
+      // The narrow Chromebook crop already excludes the true card edge. Keep
+      // a left-edge vertical component there because it may be the `1` in `10`.
       const edgeVertical =
+        activeTemplate.id !== "chromebook" &&
         component.touchesLeft &&
         component.width <= Math.max(7, width * 0.14) &&
         component.height >= height * 0.38;
