@@ -64,7 +64,7 @@
   const SESSION_KEY = "freecellPendingScanV23";
   const LOCAL_RECOGNITION_LIBRARY_KEY = "freecellRecognitionAdditionsV36";
   const BUILTIN_RECOGNITION_LIBRARY_VERSION = 36;
-  const CHROMEBOOK_RECOGNITION_LIBRARY_VERSION = 63;
+  const CHROMEBOOK_RECOGNITION_LIBRARY_VERSION = 64;
   const MAX_LOCAL_TEMPLATES_PER_SYMBOL = 3;
   const MIN_TEMPLATE_CONFIDENCE = 0.72;
   const RANK_LABELS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
@@ -1956,7 +1956,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "dual-layout-tableau-template-v63",
+          detector: "dual-layout-tableau-template-v64",
           layoutProfile: activeTemplate.id,
           templateRatios: activeTemplate,
           tableauTopCorrectionPx: activeTemplate.topCorrectionPx,
@@ -2027,9 +2027,13 @@
   function recognitionCropForRegion(region) {
     // v25: wider and slightly taller than v24 so the entire rank and small suit
     // symbol remain visible. The crop still stays inside one fitted column lane.
-    const insetX = detection.spacing * 0.012;
+    // Chromebook cards occupy only about two-thirds of the fitted column pitch.
+    // Crop to their inner face so the card-edge bars and inter-column gaps never
+    // become part of a rank or suit template. Keep the established iPhone crop.
+    const chromebook = activeTemplate.id === "chromebook";
+    const insetX = detection.spacing * (chromebook ? 0.16 : 0.012);
     const insetY = detection.rowStep * 0.018;
-    const width = detection.spacing * 0.93;
+    const width = detection.spacing * (chromebook ? 0.68 : 0.93);
     const height = detection.rowStep * 0.86;
 
     return {
