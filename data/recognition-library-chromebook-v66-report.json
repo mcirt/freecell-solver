@@ -1,0 +1,81 @@
+{
+  "source": "20BE23CA-E3EE-48B8-88BE-F126FC068EDC.jpeg",
+  "image": {
+    "width": 1536,
+    "height": 960
+  },
+  "geometry": {
+    "left": 392,
+    "top": 425,
+    "width": 754,
+    "pitch": 94.25,
+    "rowStep": 36.900000000000006
+  },
+  "counts": {
+    "ranks": {
+      "2": 4,
+      "3": 4,
+      "4": 4,
+      "5": 4,
+      "6": 4,
+      "7": 4,
+      "8": 4,
+      "9": 4,
+      "10": 4,
+      "A": 4,
+      "K": 4,
+      "J": 4,
+      "Q": 4
+    },
+    "suits": {
+      "H": 13,
+      "D": 13,
+      "C": 13,
+      "S": 13
+    }
+  },
+  "leaveOneOut": {
+    "ranks": {
+      "correct": 48,
+      "total": 52,
+      "mistakes": [
+        {
+          "id": "C7-2",
+          "truth": "Q",
+          "predicted": "3",
+          "score": 0.606
+        },
+        {
+          "id": "C8-1",
+          "truth": "5",
+          "predicted": "8",
+          "score": 0.774
+        },
+        {
+          "id": "C8-4",
+          "truth": "Q",
+          "predicted": "10",
+          "score": 0.52
+        },
+        {
+          "id": "C8-5",
+          "truth": "8",
+          "predicted": "5",
+          "score": 0.774
+        }
+      ]
+    },
+    "suits": {
+      "correct": 51,
+      "total": 52,
+      "mistakes": [
+        {
+          "id": "C1-2",
+          "truth": "D",
+          "predicted": "H",
+          "score": 0.655
+        }
+      ]
+    }
+  }
+}
