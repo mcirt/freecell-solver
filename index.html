@@ -293,8 +293,19 @@
           </div>
         </section>
 
+        <details id="scan-recognition-diagnostics" class="scan-recognition-diagnostics" hidden>
+          <summary>Diagnostics and fine-tuning</summary>
+          <p>Normal scans skip the hundreds of graphical diagnostic views. Build them here only when a card needs investigation or when adapting the scanner to another device.</p>
+          <div class="scan-diagnostic-actions">
+            <button id="scan-show-problem-diagnostics" class="scan-secondary" type="button">Show Problem Cards</button>
+            <button id="scan-show-all-diagnostics" class="scan-secondary" type="button">Show All 52 Cards</button>
+            <button id="scan-hide-diagnostics" class="scan-secondary" type="button" disabled>Hide Diagnostics</button>
+          </div>
+          <div id="scan-diagnostics-status" class="scan-diagnostics-status" role="status">Diagnostics have not been generated.</div>
+        </details>
+
         <section id="scan-crop-preview-panel" class="scan-crop-preview-panel" hidden aria-label="Card recognition thumbnail preview">
-          <h3>52 card-recognition results</h3>
+          <h3>Recognition diagnostics</h3>
           <p>The complete working recognition library is built into the project and loads automatically on every device. You may still save optional extra examples for future testing.</p>
           <div id="scan-recognition-library-summary" class="scan-recognition-library-summary"></div>
           <div class="scan-library-actions">
@@ -319,7 +330,7 @@
   <script src="data/recognition-library-v36.js?v=36"></script>
   <script src="data/recognition-library-chromebook-v72.js?v=72"></script>
   <script src="js/photo-pipeline.js?v=41"></script>
-  <script src="js/scan.js?v=72"></script>
+  <script src="js/scan.js?v=73"></script>
   <script src="js/alternate-solver.js?v=61"></script>
   <script>
     var require = { baseUrl: "js", urlArgs: "v=56" };
