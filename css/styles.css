@@ -1352,6 +1352,43 @@ button, textarea, select, a { font: inherit; }
   padding-bottom: 14px;
 }
 
+/* v73: recognition diagnostics are generated only on demand. */
+.scan-recognition-diagnostics {
+  margin: 14px 0;
+  border: 1px solid rgba(95, 210, 238, .45);
+  border-radius: 14px;
+  background: rgba(2, 19, 48, .72);
+  color: #dffcff;
+}
+.scan-recognition-diagnostics > summary {
+  cursor: pointer;
+  padding: 13px 14px;
+  color: #87f0ed;
+  font-weight: 800;
+}
+.scan-recognition-diagnostics > p,
+.scan-recognition-diagnostics > div {
+  margin-left: 14px;
+  margin-right: 14px;
+}
+.scan-diagnostic-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.scan-diagnostics-status {
+  margin-bottom: 14px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: rgba(4, 21, 47, .9);
+  color: #b8d8eb;
+  font-size: .86rem;
+}
+@media (max-width: 700px) {
+  .scan-diagnostic-actions { grid-template-columns: 1fr; }
+}
+
 
 /* ===== v51 visible origin + content-fitted tableau ===== */
 .solution-page .move-origin-placeholder {
