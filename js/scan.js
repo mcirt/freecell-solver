@@ -64,7 +64,7 @@
   const SESSION_KEY = "freecellPendingScanV23";
   const LOCAL_RECOGNITION_LIBRARY_KEY = "freecellRecognitionAdditionsV36";
   const BUILTIN_RECOGNITION_LIBRARY_VERSION = 36;
-  const CHROMEBOOK_RECOGNITION_LIBRARY_VERSION = 68;
+  const CHROMEBOOK_RECOGNITION_LIBRARY_VERSION = 69;
   const MAX_LOCAL_TEMPLATES_PER_SYMBOL = 3;
   const MIN_TEMPLATE_CONFIDENCE = 0.72;
   const RANK_LABELS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
@@ -1958,7 +1958,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "dual-layout-tableau-template-v68",
+          detector: "dual-layout-tableau-template-v69",
           layoutProfile: activeTemplate.id,
           templateRatios: activeTemplate,
           tableauTopCorrectionPx: activeTemplate.topCorrectionPx,
@@ -2205,9 +2205,17 @@
         component.height <= height * 0.30 &&
         component.area < largestArea * 0.48;
 
-      const tiny =
+      // A narrow `1` can be much smaller than the adjacent `0`. Do not discard
+      // a plausible tall left-side rank piece before companion pairing runs.
+      const chromebookLeftRankPiece =
+        activeTemplate.id === "chromebook" &&
+        component.maxX < width * 0.55 &&
+        component.height >= height * 0.18 &&
+        component.area >= 6;
+      const tiny = !chromebookLeftRankPiece && (
         component.area < Math.max(12, largestArea * 0.025) ||
-        (component.width <= 3 && component.height <= 8);
+        (component.width <= 3 && component.height <= 8)
+      );
 
       if (edgeVertical) reasons.set(component, "left border");
       else if (topRule) reasons.set(component, "top border");
@@ -2279,11 +2287,11 @@
       const chromebookTenCompanion =
         activeTemplate.id === "chromebook" &&
         component.maxX < primary.minX &&
-        verticalOverlap >= 0.25 &&
+        verticalOverlap >= 0.15 &&
         gap >= -3 &&
-        gap <= width * 0.45 &&
-        areaRatio >= 0.04 &&
-        component.height >= height * 0.30;
+        gap <= width * 0.55 &&
+        areaRatio >= 0.02 &&
+        component.height >= height * 0.18;
 
       if ((sameLine && substantial && notArtwork) || chromebookTenCompanion) {
         kept.push(component);
@@ -2490,16 +2498,15 @@
         const brightness = (r + g + b) / 3;
         const red = r > g * 1.28 && r > b * 1.28 && r > 105;
         const dark = brightness < 132 && Math.max(r, g, b) - Math.min(r, g, b) < 95;
-        // The movable-card glow can create a false dark-green vertical stroke
-        // at the extreme left of a Chromebook rank ROI. Ignore only saturated
-        // green pixels in that narrow edge band; actual rank ink elsewhere is
-        // thresholded exactly as before.
-        const leftHighlightEdge =
+        // The movable-card glow can enter the top and left edges of a
+        // Chromebook symbol ROI. Ignore only saturated green pixels in those
+        // narrow edge bands; actual black/red symbol ink remains unchanged.
+        const highlightEdge =
           activeTemplate.id === "chromebook" &&
-          x < source.width * 0.15 &&
+          (x < source.width * 0.15 || y < source.height * 0.18) &&
           g >= r + 18 &&
           g >= b + 10;
-        const foreground = red || (dark && !leftHighlightEdge);
+        const foreground = red || (dark && !highlightEdge);
 
         binary[y * source.width + x] = foreground ? 1 : 0;
         if (red) redPixels += 1;
