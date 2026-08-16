@@ -64,7 +64,7 @@
   const SESSION_KEY = "freecellPendingScanV23";
   const LOCAL_RECOGNITION_LIBRARY_KEY = "freecellRecognitionAdditionsV36";
   const BUILTIN_RECOGNITION_LIBRARY_VERSION = 36;
-  const CHROMEBOOK_RECOGNITION_LIBRARY_VERSION = 69;
+  const CHROMEBOOK_RECOGNITION_LIBRARY_VERSION = 70;
   const MAX_LOCAL_TEMPLATES_PER_SYMBOL = 3;
   const MIN_TEMPLATE_CONFIDENCE = 0.72;
   const RANK_LABELS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
@@ -456,6 +456,53 @@
     return `${DISPLAY_RANKS[rank] || "?"}${SUIT_NAMES[suit] || "?"}`;
   }
 
+  function reconcileSingleDeckMismatch(columns) {
+    const cards = columns.flat();
+    if (cards.length !== 52 || cards.some((card) => !card.rank || !card.suit)) return null;
+
+    const allKeys = [];
+    RANK_LABELS.forEach((rank) => {
+      SUIT_LABELS.forEach((suit) => allKeys.push(rankSuitKey(rank, suit)));
+    });
+
+    const occurrences = new Map();
+    cards.forEach((card) => {
+      const key = rankSuitKey(card.rank, card.suit);
+      if (!occurrences.has(key)) occurrences.set(key, []);
+      occurrences.get(key).push(card);
+    });
+
+    const duplicateEntries = Array.from(occurrences.entries()).filter(([, matches]) => matches.length === 2);
+    const missingKeys = allKeys.filter((key) => !occurrences.has(key));
+    if (duplicateEntries.length !== 1 || missingKeys.length !== 1) return null;
+
+    const [duplicateKey, duplicateCards] = duplicateEntries[0];
+    const missingKey = missingKeys[0];
+    const duplicateRank = duplicateKey.slice(0, -1);
+    const duplicateSuit = duplicateKey.slice(-1);
+    const missingRank = missingKey.slice(0, -1);
+    const missingSuit = missingKey.slice(-1);
+
+    const rankOnlyError = duplicateSuit === missingSuit && duplicateRank !== missingRank;
+    const suitOnlyError = duplicateRank === missingRank && duplicateSuit !== missingSuit;
+    if (!rankOnlyError && !suitOnlyError) return null;
+
+    const editable = duplicateCards.filter((card) => !card.manuallyEdited);
+    if (!editable.length) return null;
+    const confidenceField = rankOnlyError ? "rankConfidence" : "suitConfidence";
+    editable.sort((a, b) => a[confidenceField] - b[confidenceField]);
+    const target = editable[0];
+    const other = duplicateCards.find((card) => card !== target);
+    if (other && target[confidenceField] > other[confidenceField]) return null;
+
+    const before = displayCard(target.rank, target.suit);
+    target.rank = missingRank;
+    target.suit = missingSuit;
+    target.autoCorrected = true;
+    target.autoCorrection = `${before} → ${displayCard(missingRank, missingSuit)}`;
+    return { id: target.id, before, after: displayCard(missingRank, missingSuit) };
+  }
+
   function buildRecognizedBoardFromCards() {
     const byIdMap = new Map(recognitionCards.map((card) => [card.id, card]));
     const columns = [];
@@ -490,6 +537,7 @@
     }
 
     recognizedBoard = columns;
+    reconcileSingleDeckMismatch(columns);
     boardValidation = validateRecognizedBoard(columns);
     return columns;
   }
@@ -629,6 +677,8 @@
     card.confidence = 1;
     card.rankAccepted = true;
     card.suitAccepted = true;
+    card.autoCorrected = false;
+    card.autoCorrection = "";
 
     boardValidation = validateRecognizedBoard(recognizedBoard);
     renderRecognizedBoard();
@@ -679,12 +729,15 @@
         item.classList.add(`scan-card-${confidenceState}`);
         if (issueIds.has(card.id)) item.classList.add("scan-card-invalid");
         if (card.manuallyEdited) item.classList.add("scan-card-edited");
+        if (card.autoCorrected) item.classList.add("scan-card-edited");
 
         const label = document.createElement("strong");
         label.textContent = displayCard(card.rank, card.suit);
 
         const meta = document.createElement("small");
-        meta.textContent = `${card.id} · ${Math.round(card.confidence * 100)}%`;
+        meta.textContent = card.autoCorrected
+          ? `${card.id} · deck repair ${card.autoCorrection}`
+          : `${card.id} · ${Math.round(card.confidence * 100)}%`;
 
         item.append(label, meta);
         item.addEventListener("click", () => {
@@ -722,10 +775,14 @@
     const confidenceMessage = boardValidation.lowConfidenceCount
       ? `${boardValidation.lowConfidenceCount} card(s) are below 85% confidence.`
       : "Every recognized card is at least 85% confidence.";
+    const autoCorrections = recognizedBoard.flat().filter((card) => card.autoCorrected);
+    const repairMessage = autoCorrections.length
+      ? ` Deck validation repaired ${autoCorrections.map((card) => `${card.id}: ${card.autoCorrection}`).join(", ")}.`
+      : "";
 
     status.className = `scan-board-validation-status ${boardValidation.valid ? "valid" : "invalid"}`;
     status.innerHTML = boardValidation.valid
-      ? `<strong>Valid 52-card deck</strong><span>${confidenceMessage}</span>`
+      ? `<strong>Valid 52-card deck</strong><span>${confidenceMessage}${repairMessage}</span>`
       : `<strong>Board needs review</strong><span>${boardValidation.completeCount}/52 complete · ${boardValidation.uniqueCards} unique cards · ${confidenceMessage}</span>`;
 
     if (boardValidation.issues.length) {
@@ -1958,7 +2015,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "dual-layout-tableau-template-v69",
+          detector: "dual-layout-tableau-template-v70",
           layoutProfile: activeTemplate.id,
           templateRatios: activeTemplate,
           tableauTopCorrectionPx: activeTemplate.topCorrectionPx,
@@ -2205,14 +2262,15 @@
         component.height <= height * 0.30 &&
         component.area < largestArea * 0.48;
 
-      // A narrow `1` can be much smaller than the adjacent `0`. Do not discard
-      // a plausible tall left-side rank piece before companion pairing runs.
-      const chromebookLeftRankPiece =
+      // A narrow `1` can be much smaller than the adjacent `0`, and either
+      // glyph can score first. Keep any plausible tall rank piece eligible for
+      // the later two-part pairing check.
+      const chromebookRankPiece =
         activeTemplate.id === "chromebook" &&
-        component.maxX < width * 0.55 &&
-        component.height >= height * 0.18 &&
+        component.maxX < width * 0.90 &&
+        component.height >= height * 0.24 &&
         component.area >= 6;
-      const tiny = !chromebookLeftRankPiece && (
+      const tiny = !chromebookRankPiece && (
         component.area < Math.max(12, largestArea * 0.025) ||
         (component.width <= 3 && component.height <= 8)
       );
@@ -2280,20 +2338,19 @@
         component.minY < height * 0.62 ||
         component.height > height * 0.38;
 
-      // On Chromebook captures, the narrow `1` in `10` can be separated from
-      // the wider `0` and score below it. Preserve a substantial component
-      // immediately to the left of the primary rank. This is deliberately
-      // directional so the small suit fragment to the right stays rejected.
-      const chromebookTenCompanion =
+      // Preserve two similarly tall, horizontally adjacent rank glyphs in
+      // either score order. This keeps both `1` and `0`, while a small suit
+      // fragment fails the relative-height and overlap requirements.
+      const chromebookTwoPartRank =
         activeTemplate.id === "chromebook" &&
-        component.maxX < primary.minX &&
-        verticalOverlap >= 0.15 &&
+        Math.max(component.maxX, primary.maxX) < width * 0.90 &&
+        verticalOverlap >= 0.50 &&
         gap >= -3 &&
-        gap <= width * 0.55 &&
-        areaRatio >= 0.02 &&
-        component.height >= height * 0.18;
+        gap <= width * 0.35 &&
+        component.height >= primary.height * 0.52 &&
+        primary.height >= component.height * 0.52;
 
-      if ((sameLine && substantial && notArtwork) || chromebookTenCompanion) {
+      if ((sameLine && substantial && notArtwork) || chromebookTwoPartRank) {
         kept.push(component);
       }
     });
@@ -2511,6 +2568,24 @@
         binary[y * source.width + x] = foreground ? 1 : 0;
         if (red) redPixels += 1;
         if (dark) darkPixels += 1;
+      }
+    }
+
+    // The card outline can be dark/neutral rather than green, so color alone
+    // cannot reliably reject it. Remove only the outer bands where a card edge
+    // can occur. Rank keeps its left side because that is where the `1` in `10`
+    // lives; suit removes both side edges and the top border.
+    if (activeTemplate.id === "chromebook") {
+      const role = options.role || "suit";
+      const topRows = Math.round(source.height * (role === "suit" ? 0.18 : 0.10));
+      const leftColumns = role === "suit" ? Math.round(source.width * 0.10) : 0;
+      const rightStart = Math.round(source.width * (role === "suit" ? 0.84 : 0.90));
+      for (let y = 0; y < source.height; y += 1) {
+        for (let x = 0; x < source.width; x += 1) {
+          if (y < topRows || x < leftColumns || x >= rightStart) {
+            binary[y * source.width + x] = 0;
+          }
+        }
       }
     }
 
