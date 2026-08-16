@@ -64,7 +64,7 @@
   const SESSION_KEY = "freecellPendingScanV23";
   const LOCAL_RECOGNITION_LIBRARY_KEY = "freecellRecognitionAdditionsV36";
   const BUILTIN_RECOGNITION_LIBRARY_VERSION = 36;
-  const CHROMEBOOK_RECOGNITION_LIBRARY_VERSION = 70;
+  const CHROMEBOOK_RECOGNITION_LIBRARY_VERSION = 71;
   const MAX_LOCAL_TEMPLATES_PER_SYMBOL = 3;
   const MIN_TEMPLATE_CONFIDENCE = 0.72;
   const RANK_LABELS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
@@ -2015,7 +2015,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "dual-layout-tableau-template-v70",
+          detector: "dual-layout-tableau-template-v71",
           layoutProfile: activeTemplate.id,
           templateRatios: activeTemplate,
           tableauTopCorrectionPx: activeTemplate.topCorrectionPx,
@@ -2537,6 +2537,52 @@
     };
   }
 
+  function removeDetectedSuitBorderLines(binary, width, height) {
+    const remove = new Uint8Array(binary.length);
+
+    // Long horizontal runs near the top are card borders, not rounded suit
+    // lobes. Mark only the detected run rather than deleting whole rows.
+    const topLimit = Math.max(1, Math.round(height * 0.25));
+    const minHorizontal = Math.max(5, Math.round(width * 0.32));
+    for (let y = 0; y < topLimit; y += 1) {
+      let start = -1;
+      for (let x = 0; x <= width; x += 1) {
+        const foreground = x < width && binary[y * width + x];
+        if (foreground && start < 0) start = x;
+        if ((!foreground || x === width) && start >= 0) {
+          const end = x - 1;
+          if (end - start + 1 >= minHorizontal) {
+            for (let px = start; px <= end; px += 1) remove[y * width + px] = 1;
+          }
+          start = -1;
+        }
+      }
+    }
+
+    // Likewise remove only long vertical runs close to either side edge.
+    const sideBand = Math.max(1, Math.round(width * 0.20));
+    const minVertical = Math.max(5, Math.round(height * 0.38));
+    for (let x = 0; x < width; x += 1) {
+      if (x >= sideBand && x < width - sideBand) continue;
+      let start = -1;
+      for (let y = 0; y <= height; y += 1) {
+        const foreground = y < height && binary[y * width + x];
+        if (foreground && start < 0) start = y;
+        if ((!foreground || y === height) && start >= 0) {
+          const end = y - 1;
+          if (end - start + 1 >= minVertical) {
+            for (let py = start; py <= end; py += 1) remove[py * width + x] = 1;
+          }
+          start = -1;
+        }
+      }
+    }
+
+    for (let i = 0; i < binary.length; i += 1) {
+      if (remove[i]) binary[i] = 0;
+    }
+  }
+
   function normalizedSymbolCanvas(source, targetWidth, targetHeight, options = {}) {
     const srcCtx = source.getContext("2d", { willReadFrequently: true });
     const imageData = srcCtx.getImageData(0, 0, source.width, source.height);
@@ -2571,20 +2617,17 @@
       }
     }
 
-    // The card outline can be dark/neutral rather than green, so color alone
-    // cannot reliably reject it. Remove only the outer bands where a card edge
-    // can occur. Rank keeps its left side because that is where the `1` in `10`
-    // lives; suit removes both side edges and the top border.
-    if (activeTemplate.id === "chromebook") {
-      const role = options.role || "suit";
-      const topRows = Math.round(source.height * (role === "suit" ? 0.18 : 0.10));
-      const leftColumns = role === "suit" ? Math.round(source.width * 0.10) : 0;
-      const rightStart = Math.round(source.width * (role === "suit" ? 0.84 : 0.90));
+    // Do not geometrically clip a suit mask. The fitted Suit ROI already
+    // isolates the symbol; fixed or inferred edge removal can amputate a club's
+    // upper lobe when the card sits slightly higher in a different screenshot.
+    // Rank keeps its left side for the `1` in `10`, but can safely discard its
+    // narrow top and far-right overlap bands.
+    if (activeTemplate.id === "chromebook" && options.role === "rank") {
+      const topRows = Math.round(source.height * 0.10);
+      const rightStart = Math.round(source.width * 0.90);
       for (let y = 0; y < source.height; y += 1) {
         for (let x = 0; x < source.width; x += 1) {
-          if (y < topRows || x < leftColumns || x >= rightStart) {
-            binary[y * source.width + x] = 0;
-          }
+          if (y < topRows || x >= rightStart) binary[y * source.width + x] = 0;
         }
       }
     }
