@@ -50,6 +50,11 @@
   const previewPanel = byId("scan-preview-panel");
   const detailsPanel = byId("scan-crop-preview-panel");
   const detailsGrid = byId("scan-crop-preview-grid");
+  const diagnosticsPanel = byId("scan-recognition-diagnostics");
+  const diagnosticsStatus = byId("scan-diagnostics-status");
+  const showProblemDiagnosticsButton = byId("scan-show-problem-diagnostics");
+  const showAllDiagnosticsButton = byId("scan-show-all-diagnostics");
+  const hideDiagnosticsButton = byId("scan-hide-diagnostics");
   const image = byId("scan-image");
   const overlay = byId("scan-crops");
   const summaryEl = byId("scan-detection-summary");
@@ -132,6 +137,7 @@
   let recognitionCards = [];
   let recognizedBoard = [];
   let boardValidation = null;
+  let diagnosticMode = "none";
 
 
   function normalizeRecognitionGroup(group, limit) {
@@ -431,12 +437,16 @@
   function refreshAllPredictions() {
     recognitionCards.forEach((card) => {
       card.prediction = predictCard(card);
-      card.rankPredictionEl.textContent = card.prediction.rank
-        ? `${card.prediction.rank.accepted ? "" : "Review: "}${card.prediction.rank.label} (${Math.round(card.prediction.rank.confidence * 100)}%, ${card.prediction.rank.examples} examples)`
-        : "needs templates";
-      card.suitPredictionEl.textContent = card.prediction.suit
-        ? `${card.prediction.suit.accepted ? "" : "Review: "}${SUIT_NAMES[card.prediction.suit.label]} (${Math.round(card.prediction.suit.confidence * 100)}%, ${card.prediction.suit.examples} examples)`
-        : "needs templates";
+      if (card.rankPredictionEl) {
+        card.rankPredictionEl.textContent = card.prediction.rank
+          ? `${card.prediction.rank.accepted ? "" : "Review: "}${card.prediction.rank.label} (${Math.round(card.prediction.rank.confidence * 100)}%, ${card.prediction.rank.examples} examples)`
+          : "needs templates";
+      }
+      if (card.suitPredictionEl) {
+        card.suitPredictionEl.textContent = card.prediction.suit
+          ? `${card.prediction.suit.accepted ? "" : "Review: "}${SUIT_NAMES[card.prediction.suit.label]} (${Math.round(card.prediction.suit.confidence * 100)}%, ${card.prediction.suit.examples} examples)`
+          : "needs templates";
+      }
     });
     updateRecognitionLibrarySummary();
   }
@@ -1495,6 +1505,13 @@
     summaryEl.textContent = "No tableau detected yet.";
     detailsPanel.hidden = true;
     detailsGrid.replaceChildren();
+    diagnosticMode = "none";
+    if (diagnosticsPanel) {
+      diagnosticsPanel.hidden = true;
+      diagnosticsPanel.open = false;
+    }
+    if (diagnosticsStatus) diagnosticsStatus.textContent = "Diagnostics have not been generated.";
+    if (hideDiagnosticsButton) hideDiagnosticsButton.disabled = true;
     if (debugPanel) {
       debugPanel.hidden = true;
       debugPanel.open = false;
@@ -2584,6 +2601,7 @@
   }
 
   function normalizedSymbolCanvas(source, targetWidth, targetHeight, options = {}) {
+    const includeDiagnostics = Boolean(options.includeDiagnostics);
     const srcCtx = source.getContext("2d", { willReadFrequently: true });
     const imageData = srcCtx.getImageData(0, 0, source.width, source.height);
     const data = imageData.data;
@@ -2667,7 +2685,9 @@
       }
     }
 
-    const rawMaskCanvas = binaryToCanvas(binary, source.width, source.height);
+    const rawMaskCanvas = includeDiagnostics
+      ? binaryToCanvas(binary, source.width, source.height)
+      : null;
     const cleanup = options.role === "rank"
       ? selectRankComponents(binary, source.width, source.height)
       : selectSuitComponents(binary, source.width, source.height);
@@ -2679,18 +2699,20 @@
       targetHeight
     );
 
-    const componentDebug = componentDebugCanvas(
-      source.width,
-      source.height,
-      cleanup.kept,
-      cleanup.removed
-    );
+    const componentDebug = includeDiagnostics
+      ? componentDebugCanvas(
+        source.width,
+        source.height,
+        cleanup.kept,
+        cleanup.removed
+      )
+      : null;
 
     return {
       canvas: normalized.canvas,
       rawMaskCanvas,
       componentDebugCanvas: componentDebug,
-      cleanedSourceCanvas: normalized.sourceCanvas,
+      cleanedSourceCanvas: includeDiagnostics ? normalized.sourceCanvas : null,
       foregroundBounds: normalized.foregroundBounds,
       colorFamily: redPixels > darkPixels * 0.65 ? "red" : "black",
       redPixels,
@@ -2729,6 +2751,192 @@
     return canvas;
   }
 
+  function recognizeCard(region) {
+    const crop = recognitionCropForRegion(region);
+    const rois = rankAndSuitRegions(crop);
+    const rankSource = cropCanvasFromSource(rois.rank);
+    const suitSource = cropCanvasFromSource(rois.suit);
+    const rankMask = normalizedSymbolCanvas(rankSource, 64, 80, { role: "rank" });
+    const suitMask = normalizedSymbolCanvas(suitSource, 64, 80, { role: "suit" });
+
+    return {
+      id: region.id,
+      region,
+      extraction: crop,
+      rank: rois.rank,
+      suit: rois.suit,
+      rankBounds: rankMask.foregroundBounds,
+      suitBounds: suitMask.foregroundBounds,
+      suitColorFamily: suitMask.colorFamily,
+      greenHighlightDetected: suitMask.greenHighlightDetected,
+      greenHueRatio: suitMask.greenHueRatio,
+      rankBinary: canvasToBinary(rankMask.canvas),
+      suitBinary: canvasToBinary(suitMask.canvas),
+      rankPredictionEl: null,
+      suitPredictionEl: null,
+      prediction: null
+    };
+  }
+
+  function updateDiagnosticPredictionText(card) {
+    if (card.rankPredictionEl) {
+      card.rankPredictionEl.textContent = card.prediction && card.prediction.rank
+        ? `${card.prediction.rank.accepted ? "" : "Review: "}${card.prediction.rank.label} (${Math.round(card.prediction.rank.confidence * 100)}%, ${card.prediction.rank.examples} examples)`
+        : "needs templates";
+    }
+    if (card.suitPredictionEl) {
+      card.suitPredictionEl.textContent = card.prediction && card.prediction.suit
+        ? `${card.prediction.suit.accepted ? "" : "Review: "}${SUIT_NAMES[card.prediction.suit.label]} (${Math.round(card.prediction.suit.confidence * 100)}%, ${card.prediction.suit.examples} examples)`
+        : "needs templates";
+    }
+  }
+
+  function clearRecognitionDiagnostics() {
+    diagnosticMode = "none";
+    detailsGrid.replaceChildren();
+    detailsPanel.hidden = true;
+    recognitionCards.forEach((card) => {
+      card.rankPredictionEl = null;
+      card.suitPredictionEl = null;
+    });
+    if (diagnosticsStatus) diagnosticsStatus.textContent = "Diagnostics hidden and released from memory.";
+    if (hideDiagnosticsButton) hideDiagnosticsButton.disabled = true;
+  }
+
+  function diagnosticProblemIds() {
+    const ids = cardIssueIds(boardValidation || validateRecognizedBoard(recognizedBoard));
+    recognizedBoard.flat().forEach((card) => {
+      if (card.confidence < REVIEW_CONFIDENCE || card.autoCorrected) ids.add(card.id);
+    });
+    return ids;
+  }
+
+  function buildDiagnosticArticle(card) {
+    const original = makeCropCanvas(card.extraction);
+    original.className = "scan-recognition-original";
+    const rankSource = cropCanvasFromSource(card.rank);
+    const suitSource = cropCanvasFromSource(card.suit);
+    const rankMask = normalizedSymbolCanvas(rankSource, 64, 80, { role: "rank", includeDiagnostics: true });
+    const suitMask = normalizedSymbolCanvas(suitSource, 64, 80, { role: "suit", includeDiagnostics: true });
+
+    const article = document.createElement("article");
+    article.className = "scan-recognition-review";
+    const header = document.createElement("header");
+    header.innerHTML = `<strong>${card.id}</strong><small>${Math.round(card.extraction.width)}×${Math.round(card.extraction.height)} px source</small>`;
+    const rows = document.createElement("div");
+    rows.className = "scan-recognition-rows";
+
+    function box(canvas, label, extraClass) {
+      const figure = document.createElement("figure");
+      figure.className = "scan-recognition-box" + (extraClass ? " " + extraClass : "");
+      const caption = document.createElement("figcaption");
+      caption.textContent = label;
+      figure.append(canvas, caption);
+      return figure;
+    }
+
+    rows.append(
+      box(original, "Full extraction", "scan-recognition-full"),
+      box(rankSource, "Rank ROI"),
+      box(suitSource, "Suit ROI"),
+      box(rankMask.rawMaskCanvas, "Raw rank mask"),
+      box(rankMask.componentDebugCanvas, "Rank components · green kept / red rejected"),
+      box(rankMask.cleanedSourceCanvas, `Cleaned rank · kept ${rankMask.keptComponents} / removed ${rankMask.removedComponents}`),
+      box(rankMask.canvas, "Normalized rank mask"),
+      box(suitMask.rawMaskCanvas, "Raw suit mask"),
+      box(suitMask.componentDebugCanvas, "Suit components · green kept / red rejected"),
+      box(suitMask.cleanedSourceCanvas, `Cleaned suit · kept ${suitMask.keptComponents} / removed ${suitMask.removedComponents}`),
+      box(suitMask.canvas, "Normalized suit mask")
+    );
+
+    const status = document.createElement("div");
+    status.className = "scan-recognition-status";
+    status.innerHTML = `<span>Suit color family: <strong>${suitMask.colorFamily}</strong></span>`;
+    const highlightLine = document.createElement("span");
+    const highlightPercent = Math.round(suitMask.greenHueRatio * 100);
+    highlightLine.innerHTML = suitMask.greenHighlightDetected
+      ? `Green highlight: <strong>detected (${highlightPercent}%) — halo cleanup used</strong>`
+      : `Green highlight: <strong>not detected (${highlightPercent}%)</strong>`;
+    const rankLine = document.createElement("span");
+    rankLine.append("Rank prediction: ");
+    card.rankPredictionEl = document.createElement("strong");
+    rankLine.append(card.rankPredictionEl);
+    const suitLine = document.createElement("span");
+    suitLine.append("Suit prediction: ");
+    card.suitPredictionEl = document.createElement("strong");
+    suitLine.append(card.suitPredictionEl);
+    status.append(highlightLine, rankLine, suitLine);
+
+    const trainer = document.createElement("div");
+    trainer.className = "scan-template-trainer";
+    const rankSelect = document.createElement("select");
+    rankSelect.innerHTML = optionMarkup(RANK_LABELS, "Choose rank");
+    const saveRank = document.createElement("button");
+    saveRank.type = "button";
+    saveRank.textContent = "Save Rank Template";
+    saveRank.addEventListener("click", () => {
+      if (!rankSelect.value) return announce(`Choose the rank for ${card.id} first.`, "error");
+      const result = addTemplate(localRecognitionLibrary.ranks, rankSelect.value, card.rankBinary);
+      if (!result.added) return announce(`That ${rankSelect.value} example is already in the library.`, "error");
+      saveRecognitionLibrary();
+      refreshAllPredictions();
+      recognitionCards.forEach(updateDiagnosticPredictionText);
+      announce(`Saved ${rankSelect.value} example ${result.count}/${MAX_LOCAL_TEMPLATES_PER_SYMBOL} from ${card.id}.`, "success");
+    });
+
+    const allowedSuits = card.suitColorFamily === "red" ? ["H", "D"] : ["S", "C"];
+    const suitSelect = document.createElement("select");
+    suitSelect.innerHTML = optionMarkup(allowedSuits, "Choose suit");
+    const saveSuit = document.createElement("button");
+    saveSuit.type = "button";
+    saveSuit.textContent = "Save Suit Template";
+    saveSuit.addEventListener("click", () => {
+      if (!suitSelect.value) return announce(`Choose the suit for ${card.id} first.`, "error");
+      const result = addTemplate(localRecognitionLibrary.suits, suitSelect.value, card.suitBinary);
+      if (!result.added) return announce(`That ${SUIT_NAMES[suitSelect.value]} example is already in the library.`, "error");
+      saveRecognitionLibrary();
+      refreshAllPredictions();
+      recognitionCards.forEach(updateDiagnosticPredictionText);
+      announce(`Saved ${SUIT_NAMES[suitSelect.value]} example ${result.count}/${MAX_LOCAL_TEMPLATES_PER_SYMBOL} from ${card.id}.`, "success");
+    });
+
+    trainer.append(rankSelect, saveRank, suitSelect, saveSuit);
+    article.append(header, rows, status, trainer);
+    updateDiagnosticPredictionText(card);
+    return article;
+  }
+
+  function showRecognitionDiagnostics(mode) {
+    if (!recognitionCards.length) {
+      announce("Scan and recognize a board first.", "error");
+      return;
+    }
+
+    clearRecognitionDiagnostics();
+    diagnosticMode = mode;
+    const problemIds = diagnosticProblemIds();
+    const cards = mode === "problems"
+      ? recognitionCards.filter((card) => problemIds.has(card.id))
+      : recognitionCards;
+
+    if (!cards.length) {
+      if (diagnosticsStatus) diagnosticsStatus.textContent = "No low-confidence, repaired, or conflicting cards were found.";
+      if (diagnosticsPanel) diagnosticsPanel.open = true;
+      return;
+    }
+
+    cards.forEach((card) => detailsGrid.appendChild(buildDiagnosticArticle(card)));
+    detailsPanel.hidden = false;
+    if (diagnosticsPanel) diagnosticsPanel.open = true;
+    if (diagnosticsStatus) {
+      diagnosticsStatus.textContent = mode === "problems"
+        ? `${cards.length} problem-card diagnostic${cards.length === 1 ? "" : "s"} generated.`
+        : "All 52 card diagnostics generated. This view intentionally uses more memory.";
+    }
+    if (hideDiagnosticsButton) hideDiagnosticsButton.disabled = false;
+    detailsPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   function showDetails(options) {
     const settings = Object.assign({ autoImport: false }, options || {});
     if (!detection) {
@@ -2737,170 +2945,33 @@
     }
 
     ensureCanvas();
-    detailsGrid.replaceChildren();
-    recognitionCards = [];
-    const recognitionRegions = [];
-
-    detection.cardRegions.forEach((region) => {
-      const crop = recognitionCropForRegion(region);
-      const rois = rankAndSuitRegions(crop);
-
-      const article = document.createElement("article");
-      article.className = "scan-recognition-review";
-
-      const header = document.createElement("header");
-      header.innerHTML = `<strong>${region.id}</strong><small>${Math.round(crop.width)}×${Math.round(crop.height)} px source</small>`;
-
-      const original = makeCropCanvas(crop);
-      original.className = "scan-recognition-original";
-
-      const rankSource = cropCanvasFromSource(rois.rank);
-      const suitSource = cropCanvasFromSource(rois.suit);
-      const rankMask = normalizedSymbolCanvas(rankSource, 64, 80, { role: "rank" });
-      const suitMask = normalizedSymbolCanvas(suitSource, 64, 80, { role: "suit" });
-      const rankBinary = canvasToBinary(rankMask.canvas);
-      const suitBinary = canvasToBinary(suitMask.canvas);
-
-      const rows = document.createElement("div");
-      rows.className = "scan-recognition-rows";
-
-      function box(canvas, label, extraClass) {
-        const figure = document.createElement("figure");
-        figure.className = "scan-recognition-box" + (extraClass ? " " + extraClass : "");
-        const caption = document.createElement("figcaption");
-        caption.textContent = label;
-        figure.append(canvas, caption);
-        return figure;
-      }
-
-      rows.append(
-        box(original, "Full extraction", "scan-recognition-full"),
-        box(rankSource, "Rank ROI"),
-        box(suitSource, "Suit ROI"),
-        box(rankMask.rawMaskCanvas, "Raw rank mask"),
-        box(rankMask.componentDebugCanvas, `Rank components · green kept / red rejected`),
-        box(rankMask.cleanedSourceCanvas, `Cleaned rank · kept ${rankMask.keptComponents} / removed ${rankMask.removedComponents}`),
-        box(rankMask.canvas, "Normalized rank mask"),
-        box(suitMask.rawMaskCanvas, "Raw suit mask"),
-        box(suitMask.componentDebugCanvas, "Suit components · green kept / red rejected"),
-        box(suitMask.cleanedSourceCanvas, `Cleaned suit · kept ${suitMask.keptComponents} / removed ${suitMask.removedComponents}`),
-        box(suitMask.canvas, "Normalized suit mask")
-      );
-
-      const status = document.createElement("div");
-      status.className = "scan-recognition-status";
-      status.innerHTML = `<span>Suit color family: <strong>${suitMask.colorFamily}</strong></span>`;
-
-      const highlightLine = document.createElement("span");
-      const highlightPercent = Math.round(suitMask.greenHueRatio * 100);
-      highlightLine.innerHTML = suitMask.greenHighlightDetected
-        ? `Green highlight: <strong>detected (${highlightPercent}%) — halo cleanup used</strong>`
-        : `Green highlight: <strong>not detected (${highlightPercent}%)</strong>`;
-
-      const rankLine = document.createElement("span");
-      rankLine.append("Rank prediction: ");
-      const rankPredictionEl = document.createElement("strong");
-      rankPredictionEl.textContent = "needs template";
-      rankLine.append(rankPredictionEl);
-
-      const suitLine = document.createElement("span");
-      suitLine.append("Suit prediction: ");
-      const suitPredictionEl = document.createElement("strong");
-      suitPredictionEl.textContent = "needs template";
-      suitLine.append(suitPredictionEl);
-
-      status.append(highlightLine, rankLine, suitLine);
-
-      const trainer = document.createElement("div");
-      trainer.className = "scan-template-trainer";
-
-      const rankSelect = document.createElement("select");
-      rankSelect.innerHTML = optionMarkup(RANK_LABELS, "Choose rank");
-      const saveRank = document.createElement("button");
-      saveRank.type = "button";
-      saveRank.textContent = "Save Rank Template";
-      saveRank.addEventListener("click", () => {
-        if (!rankSelect.value) {
-          announce(`Choose the rank for ${region.id} first.`, "error");
-          return;
-        }
-        const result = addTemplate(localRecognitionLibrary.ranks, rankSelect.value, rankBinary);
-        if (!result.added) {
-          announce(`That ${rankSelect.value} example is already in the library.`, "error");
-          return;
-        }
-        saveRecognitionLibrary();
-        refreshAllPredictions();
-        announce(`Saved ${rankSelect.value} example ${result.count}/${MAX_LOCAL_TEMPLATES_PER_SYMBOL} from ${region.id}.`, "success");
-      });
-
-      const allowedSuits = suitMask.colorFamily === "red" ? ["H", "D"] : ["S", "C"];
-      const suitSelect = document.createElement("select");
-      suitSelect.innerHTML = optionMarkup(allowedSuits, "Choose suit");
-      const saveSuit = document.createElement("button");
-      saveSuit.type = "button";
-      saveSuit.textContent = "Save Suit Template";
-      saveSuit.addEventListener("click", () => {
-        if (!suitSelect.value) {
-          announce(`Choose the suit for ${region.id} first.`, "error");
-          return;
-        }
-        const result = addTemplate(localRecognitionLibrary.suits, suitSelect.value, suitBinary);
-        if (!result.added) {
-          announce(`That ${SUIT_NAMES[suitSelect.value]} example is already in the library.`, "error");
-          return;
-        }
-        saveRecognitionLibrary();
-        refreshAllPredictions();
-        announce(`Saved ${SUIT_NAMES[suitSelect.value]} example ${result.count}/${MAX_LOCAL_TEMPLATES_PER_SYMBOL} from ${region.id}.`, "success");
-      });
-
-      trainer.append(rankSelect, saveRank, suitSelect, saveSuit);
-      article.append(header, rows, status, trainer);
-      detailsGrid.appendChild(article);
-
-      const card = {
-        id: region.id,
-        extraction: crop,
-        rank: rois.rank,
-        suit: rois.suit,
-        rankBounds: rankMask.foregroundBounds,
-        suitBounds: suitMask.foregroundBounds,
-        suitColorFamily: suitMask.colorFamily,
-        rankBinary,
-        suitBinary,
-        rankPredictionEl,
-        suitPredictionEl,
-        prediction: null
-      };
-      recognitionCards.push(card);
-      recognitionRegions.push(card);
-    });
-
-    detection.recognitionRegions = recognitionRegions;
-    // The detailed 52-ROI trainer remains available for diagnostics, but it is
-    // intentionally kept collapsed/hidden during the normal scan workflow.
-    detailsPanel.hidden = settings.autoImport;
+    clearRecognitionDiagnostics();
+    recognitionCards = detection.cardRegions.map(recognizeCard);
+    detection.recognitionRegions = recognitionCards;
     updateRecognitionLibrarySummary();
     refreshAllPredictions();
     buildRecognizedBoardFromCards();
     renderRecognizedBoard();
-
     boardValidation = validateRecognizedBoard(recognizedBoard);
+
+    if (diagnosticsPanel) diagnosticsPanel.hidden = false;
+    if (diagnosticsStatus) {
+      diagnosticsStatus.textContent = boardValidation.valid
+        ? "Fast scan complete. Diagnostics were not generated."
+        : "Fast scan complete. Use Show Problem Cards if visual troubleshooting is needed.";
+    }
+
     if (settings.autoImport && boardValidation.valid) {
       tryLoadRecognizedBoardIntoExistingInput(recognizedBoard, { solve: false });
-      announce("52 cards recognized and loaded into Board Input. Choose Solve or Compare Solver Modes.", "success");
+      announce("52 cards recognized and loaded. Diagnostic graphics were skipped.", "success");
       return;
     }
 
-    if (!settings.autoImport && !detailsPanel.hidden) {
-      detailsPanel.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
     if (settings.autoImport) {
-      announce("Recognition needs review. Correct the highlighted cards below; diagnostics stay collapsed unless you open them.", "error");
+      announce("Recognition needs review. Correct highlighted cards or generate only their diagnostics.", "error");
       byId("scan-recognized-board-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
     } else {
-      announce("Recognition complete. Review the validated 52-card board below.", "success");
+      announce("Recognition complete. Diagnostic graphics were skipped.", "success");
     }
   }
 
@@ -3010,7 +3081,19 @@
   chooseAnotherButton.addEventListener("click", showPicker);
   resetButton.addEventListener("click", clearDetection);
   detectButton.addEventListener("click", detectTableauShape);
-  detailsButton.addEventListener("click", showDetails);
+  detailsButton.addEventListener("click", () => {
+    if (!recognitionCards.length) showDetails();
+    showRecognitionDiagnostics("all");
+  });
+  if (showProblemDiagnosticsButton) {
+    showProblemDiagnosticsButton.addEventListener("click", () => showRecognitionDiagnostics("problems"));
+  }
+  if (showAllDiagnosticsButton) {
+    showAllDiagnosticsButton.addEventListener("click", () => showRecognitionDiagnostics("all"));
+  }
+  if (hideDiagnosticsButton) {
+    hideDiagnosticsButton.addEventListener("click", clearRecognitionDiagnostics);
+  }
   const clearTemplatesButton = byId("scan-clear-recognition-templates");
   if (clearTemplatesButton) clearTemplatesButton.addEventListener("click", clearRecognitionLibrary);
 
