@@ -64,7 +64,7 @@
   const SESSION_KEY = "freecellPendingScanV23";
   const LOCAL_RECOGNITION_LIBRARY_KEY = "freecellRecognitionAdditionsV36";
   const BUILTIN_RECOGNITION_LIBRARY_VERSION = 36;
-  const CHROMEBOOK_RECOGNITION_LIBRARY_VERSION = 71;
+  const CHROMEBOOK_RECOGNITION_LIBRARY_VERSION = 72;
   const MAX_LOCAL_TEMPLATES_PER_SYMBOL = 3;
   const MIN_TEMPLATE_CONFIDENCE = 0.72;
   const RANK_LABELS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
@@ -2015,7 +2015,7 @@
 
       if (debugText) {
         debugText.textContent = JSON.stringify({
-          detector: "dual-layout-tableau-template-v71",
+          detector: "dual-layout-tableau-template-v72-green-halo-aware",
           layoutProfile: activeTemplate.id,
           templateRatios: activeTemplate,
           tableauTopCorrectionPx: activeTemplate.topCorrectionPx,
@@ -2591,6 +2591,22 @@
 
     let redPixels = 0;
     let darkPixels = 0;
+    let greenHuePixels = 0;
+
+    // WorldWinner marks foundation-eligible cards with a green glow. On the
+    // reference board the four highlighted Aces contain 22.9–38.9% green in
+    // the symbol ROI, while every other card is below 3.3%. The deliberately
+    // wide gap makes 10% a stable classifier instead of a card-rank guess.
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      if (g >= r + 8 && g >= b + 6 && g > 55) greenHuePixels += 1;
+    }
+
+    const greenHueRatio = greenHuePixels / Math.max(1, source.width * source.height);
+    const greenHighlightDetected =
+      activeTemplate.id === "chromebook" && greenHueRatio >= 0.10;
 
     for (let y = 0; y < source.height; y += 1) {
       for (let x = 0; x < source.width; x += 1) {
@@ -2601,6 +2617,7 @@
         const brightness = (r + g + b) / 3;
         const red = r > g * 1.28 && r > b * 1.28 && r > 105;
         const dark = brightness < 132 && Math.max(r, g, b) - Math.min(r, g, b) < 95;
+        const greenGlow = g >= r + 8 && g >= b + 6 && g > 55;
         // The movable-card glow can enter the top and left edges of a
         // Chromebook symbol ROI. Ignore only saturated green pixels in those
         // narrow edge bands; actual black/red symbol ink remains unchanged.
@@ -2609,7 +2626,9 @@
           (x < source.width * 0.15 || y < source.height * 0.18) &&
           g >= r + 18 &&
           g >= b + 10;
-        const foreground = red || (dark && !highlightEdge);
+        const highlightedSuitContamination =
+          options.role === "suit" && greenHighlightDetected && greenGlow;
+        const foreground = red || (dark && !highlightEdge && !highlightedSuitContamination);
 
         binary[y * source.width + x] = foreground ? 1 : 0;
         if (red) redPixels += 1;
@@ -2628,6 +2647,22 @@
       for (let y = 0; y < source.height; y += 1) {
         for (let x = 0; x < source.width; x += 1) {
           if (y < topRows || x >= rightStart) binary[y * source.width + x] = 0;
+        }
+      }
+    }
+
+    // This narrow boundary cleanup runs only after detecting a highlighted
+    // card. It never crops an ordinary club/spade, and leaves the central 84%
+    // of the Suit ROI untouched.
+    if (options.role === "suit" && greenHighlightDetected) {
+      const topRows = Math.round(source.height * 0.08);
+      const leftEnd = Math.round(source.width * 0.08);
+      const rightStart = Math.round(source.width * 0.92);
+      for (let y = 0; y < source.height; y += 1) {
+        for (let x = 0; x < source.width; x += 1) {
+          if (y < topRows || x < leftEnd || x >= rightStart) {
+            binary[y * source.width + x] = 0;
+          }
         }
       }
     }
@@ -2660,6 +2695,8 @@
       colorFamily: redPixels > darkPixels * 0.65 ? "red" : "black",
       redPixels,
       darkPixels,
+      greenHighlightDetected,
+      greenHueRatio,
       removedComponents: cleanup.removed.length,
       keptComponents: cleanup.kept.length,
       removalReasons: Array.from(cleanup.reasons.values())
@@ -2754,6 +2791,12 @@
       status.className = "scan-recognition-status";
       status.innerHTML = `<span>Suit color family: <strong>${suitMask.colorFamily}</strong></span>`;
 
+      const highlightLine = document.createElement("span");
+      const highlightPercent = Math.round(suitMask.greenHueRatio * 100);
+      highlightLine.innerHTML = suitMask.greenHighlightDetected
+        ? `Green highlight: <strong>detected (${highlightPercent}%) — halo cleanup used</strong>`
+        : `Green highlight: <strong>not detected (${highlightPercent}%)</strong>`;
+
       const rankLine = document.createElement("span");
       rankLine.append("Rank prediction: ");
       const rankPredictionEl = document.createElement("strong");
@@ -2766,7 +2809,7 @@
       suitPredictionEl.textContent = "needs template";
       suitLine.append(suitPredictionEl);
 
-      status.append(rankLine, suitLine);
+      status.append(highlightLine, rankLine, suitLine);
 
       const trainer = document.createElement("div");
       trainer.className = "scan-template-trainer";
